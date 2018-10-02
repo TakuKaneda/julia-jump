@@ -17,13 +17,12 @@ for i = 1:nrow(nodes_df)
 end
 nodes_df[:Children] = s  # assign
 ## check DataFrames
-print(nodes_df)
-print(lines_df)
-print(generators_df)
-print(netdemand_df)
+# print(nodes_df)
+# print(lines_df)
+# print(generators_df)
+# print(netdemand_df)
 
 ## implement perfect foresight
-# function PerfectForesight(nodes_df,lines_df,generators_df,netdemand_df)
 function PerfectForesight()
     # generators
     Generators = generators_df[:GeneratorID]
