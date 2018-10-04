@@ -1,6 +1,6 @@
 using JuMP, Gurobi
 
-m = Model(solver = GurobiSolver(Presolve=0))
+m = Model(solver = GurobiSolver(Presolve=0, LogToConsole=0, LogFile="log/test-gurobi.log"))
 ##
 @variable(m, 0 <= x <= 2)
 @variable(m, 0 <= y <= 30)

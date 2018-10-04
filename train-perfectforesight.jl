@@ -176,7 +176,8 @@ function PerfectForesight()
     status = solve(m)
     # PrintSolution(status)
     println("Objective value: ", getobjectivevalue(m))
-    return m
+    return m, status
 end
 
-m = PerfectForesight()
+m, status = PerfectForesight()
+# getvalue(m[:pflow]) # to retreive the solution
