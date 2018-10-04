@@ -1,7 +1,7 @@
 ### Implement ce-mpc with JuMP
 using DataFrames, JuMP, Gurobi, CSV, JSON
 include("test-source.jl")
-solver = GurobiSolver(Presolve=0, LogToConsole=0, LogFile="log/train-CeMPC.log")
+solver = GurobiSolver(LogToConsole=0, LogFile="log/train-CeMPC.log")
 
 # number of samples
 NSamples = 2;
@@ -133,6 +133,8 @@ function ComputeExpectedParameters(TimeChoice,ScenarioChoice)
     end
     return PNetDemand_fix, PGenerationMax_fix, PGenerationMin_fix
 end
+
+
 ## implement certainty-equivalent Model Predictive Control
 function CeMPC(TimeChoice,ScenarioChoice,SampleChoice)
     ## Compute expected value of stochastic parameters
@@ -251,7 +253,7 @@ function CeMPC(TimeChoice,ScenarioChoice,SampleChoice)
     @constraint(m, Balance_headnode[n in [8+1], u = TimeChoice:H],
         (batterydischarge[n,u]+ loadshedding[n,u]
         - productionshedding[n,u]- batterycharge[n,u]
-        + pflow[n,u]
+        + pflow[n-1,u]
         + sum(pflow[m,u] for m in Children[n])
         == PNetDemand_fix[n,u]
         )
@@ -260,7 +262,7 @@ function CeMPC(TimeChoice,ScenarioChoice,SampleChoice)
     @constraint(m, Balance_leafnode[n in [3+1], u = TimeChoice:H],
         (batterydischarge[n,u]+ loadshedding[n,u]
         - productionshedding[n,u]- batterycharge[n,u]
-        - pflow[n,u]
+        - pflow[n-1,u]
         + sum(pflow[m,u] for m in [4])
         - p_out[u]
         == PNetDemand_fix[n,u]
@@ -291,7 +293,7 @@ function CeMPC(TimeChoice,ScenarioChoice,SampleChoice)
     p_out_Solution[TimeChoice,SampleChoice] = getvalue(p_in[TimeChoice])
     CurrentCost = (sum(MargCost[i]*pgeneration_Solution[i,TimeChoice,SampleChoice] for i in 1:NGenerators)
                     + VOLL * sum(loadshedding_Solution[:,TimeChoice,SampleChoice]))
-    return m, CurrentCost
+    return CurrentCost
 end
 ## Generate samples scenarios
 sample_path = SamplePath(TransProb,NSamples);
@@ -301,9 +303,8 @@ SampleCost = Array{Float64}(H,NSamples)
 for i = 1:NSamples
     for t = 1:H
         ScenarioChoice = sample_path[:,t,i]
-        m, SampleCost[t,i]= CeMPC(t,ScenarioChoice,i);
-        println("   cost of stage ",t,", sample ",i , SampleCost[t,i])
+        SampleCost[t,i]= CeMPC(t,ScenarioChoice,i);
+        @printf(" cost of stage %d sample No.%d:   %5.2f \$\n",t,i,SampleCost[t,i])
     end
-    println("Total cost of sample ", i, " : ", sum(SampleCost[:,i]))
-    # print(sum(CurrentCost[:,i]))
+    @printf("====Total cost of sample No.%d:   %5.2f \$====\n",i ,sum(SampleCost[:,i]))
 end
