@@ -5,3 +5,4 @@ deps/deps.jl
 data/
 *.json
 log/
+.DS_Store
