@@ -2,7 +2,10 @@
 *.jl.*.cov
 *.jl.mem
 deps/deps.jl
-data/
-*.json
+# data/
+data/.DS_Store
+data/gurobi.log
+# *.json
 log/
 .DS_Store
+*.DS_Store
