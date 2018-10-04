@@ -1,7 +1,7 @@
 ### Implement ce-mpc with JuMP
 using DataFrames, JuMP, Gurobi, CSV, JSON
 include("test-source.jl")
-solver = GurobiSolver(Presolve=0, LogToConsole=0, LogFile="log/test-gurobi.log"))
+solver = GurobiSolver(Presolve=0, LogToConsole=0, LogFile="log/train-CeMPC.log")
 
 # number of samples
 NSamples = 2;
@@ -274,10 +274,10 @@ function CeMPC(TimeChoice,ScenarioChoice,SampleChoice)
         ( - pgeneration[i,u] <= - PGenerationMin_fix[i,u])
     )
     ## Solve
-    println("Solving problem...")
+    # println("Solving problem...")
     status = solve(m)
-    PrintSolution(status)
-    println("Objective value: ", getobjectivevalue(m))
+    # PrintSolution(status)
+    # println("Objective value: ", getobjectivevalue(m))
 
     ## Store Results
     pflow_Solution[:,TimeChoice,SampleChoice] = getvalue(pflow[:,TimeChoice])
@@ -302,7 +302,7 @@ for i = 1:NSamples
     for t = 1:H
         ScenarioChoice = sample_path[:,t,i]
         m, SampleCost[t,i]= CeMPC(t,ScenarioChoice,i);
-        println(SampleCost[t,i])
+        println("   cost of stage ",t,", sample ",i , SampleCost[t,i])
     end
     println("Total cost of sample ", i, " : ", sum(SampleCost[:,i]))
     # print(sum(CurrentCost[:,i]))
