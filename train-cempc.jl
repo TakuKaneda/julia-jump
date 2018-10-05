@@ -63,16 +63,45 @@ NLattice = Array{Int64}(H)
 for t=1:H
     NLattice[t] = size(PNetDemand[1,t],1)
 end
+
 ## Store Solutions
-pflow_Solution = Array{Float64}(NLines, H, NSamples)
-pgeneration_Solution = Array{Float64}(NGenerators, H, NSamples)
-storage_Solution = Array{Float64}(NNodes, H, NSamples)
-batterycharge_Solution = Array{Float64}(NNodes, H, NSamples)
-batterydischarge_Solution = Array{Float64}(NNodes, H, NSamples)
-loadshedding_Solution = Array{Float64}(NNodes, H, NSamples)
-productionshedding_Solution = Array{Float64}(NNodes, H, NSamples)
-p_in_Solution = Array{Float64}(H, NSamples)
-p_out_Solution = Array{Float64}(H, NSamples)
+struct Solutions
+    "struct that stores solutions over a sample"
+    pflow::Array{Float64,2}
+    pgeneration::Array{Float64,2}
+    storage::Array{Float64,2}
+    batterycharge::Array{Float64,2}
+    batterydischarge::Array{Float64,2}
+    loadshedding::Array{Float64,2}
+    productionshedding::Array{Float64,2}
+    p_in::Array{Float64,1}
+    p_out::Array{Float64,1}
+    StageCost::Array{Float64,1}
+
+    # constructor
+    # maybe there is a better way to assign default values
+    Solutions() = new(
+        zeros(Float64,(NLines, H)),
+        zeros(Float64,(NGenerators, H)),
+        zeros(Float64,(NNodes, H)),
+        zeros(Float64,(NNodes, H)),
+        zeros(Float64,(NNodes, H)),
+        zeros(Float64,(NNodes, H)),
+        zeros(Float64,(NNodes, H)),
+        zeros(Float64,H),
+        zeros(Float64,H),
+        zeros(Float64,H)
+    )
+end
+# pflow_Solution = Array{Float64}(NLines, H, NSamples)
+# pgeneration_Solution = Array{Float64}(NGenerators, H, NSamples)
+# storage_Solution = Array{Float64}(NNodes, H, NSamples)
+# batterycharge_Solution = Array{Float64}(NNodes, H, NSamples)
+# batterydischarge_Solution = Array{Float64}(NNodes, H, NSamples)
+# loadshedding_Solution = Array{Float64}(NNodes, H, NSamples)
+# productionshedding_Solution = Array{Float64}(NNodes, H, NSamples)
+# p_in_Solution = Array{Float64}(H, NSamples)
+# p_out_Solution = Array{Float64}(H, NSamples)
 
 
 ## Compute expected value of stochastic parameters
@@ -136,7 +165,7 @@ end
 
 
 ## implement certainty-equivalent Model Predictive Control
-function CeMPC(TimeChoice,ScenarioChoice,SampleChoice)
+function CeMPC(TimeChoice,ScenarioChoice,SampleChoice, solutions)
     ## Compute expected value of stochastic parameters
     PNetDemand_fix, PGenerationMax_fix, PGenerationMin_fix = ComputeExpectedParameters(TimeChoice,ScenarioChoice)
 
@@ -173,7 +202,7 @@ function CeMPC(TimeChoice,ScenarioChoice,SampleChoice)
     else
         # current stage
         @constraint(m, BatteryDynamics_current[n=1:NNodes],
-            (storage[n,TimeChoice] - storage_Solution[n,TimeChoice-1,SampleChoice]  # Unique for a sample
+            (storage[n,TimeChoice] - solutions.storage[n,TimeChoice-1]  # Unique for a sample
              - BatteryChargeEfficiency[n] * batterycharge[n,TimeChoice]
              + batterydischarge[n,TimeChoice]/BatteryDischargeEfficiency[n]
             == 0)
@@ -282,29 +311,41 @@ function CeMPC(TimeChoice,ScenarioChoice,SampleChoice)
     # println("Objective value: ", getobjectivevalue(m))
 
     ## Store Results
-    pflow_Solution[:,TimeChoice,SampleChoice] = getvalue(pflow[:,TimeChoice])
-    pgeneration_Solution[:,TimeChoice,SampleChoice] = getvalue(pgeneration[:,TimeChoice])
-    storage_Solution[:,TimeChoice,SampleChoice] = getvalue(storage[:,TimeChoice])
-    batterycharge_Solution[:,TimeChoice,SampleChoice] = getvalue(batterycharge[:,TimeChoice])
-    batterydischarge_Solution[:,TimeChoice,SampleChoice] = getvalue(batterydischarge[:,TimeChoice])
-    loadshedding_Solution[:,TimeChoice,SampleChoice] = getvalue(loadshedding[:,TimeChoice])
-    productionshedding_Solution[:,TimeChoice,SampleChoice] = getvalue(productionshedding[:,TimeChoice])
-    p_in_Solution[TimeChoice,SampleChoice] = getvalue(p_in[TimeChoice])
-    p_out_Solution[TimeChoice,SampleChoice] = getvalue(p_in[TimeChoice])
-    CurrentCost = (sum(MargCost[i]*pgeneration_Solution[i,TimeChoice,SampleChoice] for i in 1:NGenerators)
-                    + VOLL * sum(loadshedding_Solution[:,TimeChoice,SampleChoice]))
-    return CurrentCost
+    solutions.pflow[:,TimeChoice] = getvalue(pflow[:,TimeChoice])
+    solutions.pgeneration[:,TimeChoice] = getvalue(pgeneration[:,TimeChoice])
+    solutions.storage[:,TimeChoice] = getvalue(storage[:,TimeChoice])
+    solutions.batterycharge[:,TimeChoice] = getvalue(batterycharge[:,TimeChoice])
+    solutions.batterydischarge[:,TimeChoice] = getvalue(batterydischarge[:,TimeChoice])
+    solutions.loadshedding[:,TimeChoice] = getvalue(loadshedding[:,TimeChoice])
+    solutions.productionshedding[:,TimeChoice] = getvalue(productionshedding[:,TimeChoice])
+    solutions.p_in[TimeChoice] = getvalue(p_in[TimeChoice])
+    solutions.p_out[TimeChoice] = getvalue(p_out[TimeChoice])
+    solutions.StageCost[TimeChoice] = (sum(MargCost[i]*solutions.pgeneration[i,TimeChoice] for i in 1:NGenerators)
+                    + VOLL * sum(solutions.loadshedding[:,TimeChoice]))
+    # pflow_Solution[:,TimeChoice,SampleChoice] = getvalue(pflow[:,TimeChoice])
+    # pgeneration_Solution[:,TimeChoice,SampleChoice] = getvalue(pgeneration[:,TimeChoice])
+    # storage_Solution[:,TimeChoice,SampleChoice] = getvalue(storage[:,TimeChoice])
+    # batterycharge_Solution[:,TimeChoice,SampleChoice] = getvalue(batterycharge[:,TimeChoice])
+    # batterydischarge_Solution[:,TimeChoice,SampleChoice] = getvalue(batterydischarge[:,TimeChoice])
+    # loadshedding_Solution[:,TimeChoice,SampleChoice] = getvalue(loadshedding[:,TimeChoice])
+    # productionshedding_Solution[:,TimeChoice,SampleChoice] = getvalue(productionshedding[:,TimeChoice])
+    # p_in_Solution[TimeChoice,SampleChoice] = getvalue(p_in[TimeChoice])
+    # p_out_Solution[TimeChoice,SampleChoice] = getvalue(p_in[TimeChoice])
+    # CurrentCost = (sum(MargCost[i]*pgeneration_Solution[i,TimeChoice,SampleChoice] for i in 1:NGenerators)
+    #                 + VOLL * sum(loadshedding_Solution[:,TimeChoice,SampleChoice]))
+    # return solution
+    return
 end
 ## Generate samples scenarios
 sample_path = SamplePath(TransProb,NSamples);
 
 ## Implementation
-SampleCost = Array{Float64}(H,NSamples)
+SolutionsArray = [Solutions() for i=1:NSamples] # array contains Solutions structs
 for i = 1:NSamples
     for t = 1:H
         ScenarioChoice = sample_path[:,t,i]
-        SampleCost[t,i]= CeMPC(t,ScenarioChoice,i);
-        @printf(" cost of stage %d sample No.%d:   %5.2f \$\n",t,i,SampleCost[t,i])
+        CeMPC(t,ScenarioChoice,i, SolutionsArray[i]);
+        @printf(" cost of stage %d sample No.%d:   %5.2f \$\n",t,i,SolutionsArray[i].StageCost[t])
     end
-    @printf("====Total cost of sample No.%d:   %5.2f \$====\n",i ,sum(SampleCost[:,i]))
+    @printf("====Total cost of sample No.%d:   %5.2f \$====\n",i ,sum(SolutionsArray[i].StageCost[:]))
 end
