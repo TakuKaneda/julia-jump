@@ -14,12 +14,16 @@ lines_df = CSV.read("data/twolayer-lines.csv")
 nodes_df = Read_nodes_csv("data/twolayer-nodes.csv")  # see src/source.jl
 generators_df = CSV.read("data/twolayer-generators.csv")
 
-## Read JSON
+## Read JSON: Network data
+LayerNodes, LayerLines = ConvertLayerData2Array("data/two_LayerNodes.json","data/two_LayerLines.json")
+HeadNodes, LeafNodes = ConvertHeadLeafNodes2Array("data/two_HeadNodes.json", "data/two_LeafNodes.json")
+LeafChildren = ConvertLeafChildren2Array("data/two_LeafChildren.json", LeafNodes,size(nodes_df,1))
+
+## Read JSON: Stochastic Params
 PNetDemand = ConvertPNetDemand2Array("data/two_ND.json")
 TransProb = ConvertTransProb2Array("data/two_TP.json")
 PGenerationMax = ConvertPGenerationCapacity2Array("data/two_PMax.json")
 PGenerationMin = ConvertPGenerationCapacity2Array("data/two_PMin.json")
-
 ## Problem Parameters
 # generators
 Generators = generators_df[:GeneratorID]
@@ -97,8 +101,8 @@ function PerfectForesight(RealPath, solutions)
     @variable(m, batterydischarge[1:NNodes,1:H] >= 0)
     @variable(m, loadshedding[1:NNodes,1:H] >= 0)
     @variable(m, productionshedding[1:NNodes,1:H] >= 0)
-    @variable(m, p_in[1:H])
-    @variable(m, p_out[1:H])
+    @variable(m, p_in[l=1:NLayers,HeadNodes[l],1:H])
+    @variable(m, p_out[l=1:NLayers,n in LeafNodes[l], LeafChildren[l,n],1:H])
 
     ## Objective - minimize cost of generation and load shedding
     @objective(m, Min,
@@ -145,12 +149,12 @@ function PerfectForesight(RealPath, solutions)
     );
 
     # p_in & pflow equality
-    @constraint(m, Pin_Flow_equality[t = 1:H],
-        (p_in[t] - pflow[8,t] == 0)
+    @constraint(m, Pin_Flow_equality[l = 1:NLayers, n in HeadNodes[l], t = 1:H],
+        (p_in[l,n,t] - pflow[n-1,t] == 0)
     );
     # p_in & p_out equality
-    @constraint(m, Pin_Pout_equality[t = 1:H],
-        (p_in[t] - p_out[t] == 0)
+    @constraint(m, Pin_Pout_equality[l = 1:NLayers, n in HeadNodes[l], t = 1:H],
+        (p_in[l,n,t] - p_out[Node2Layer[Ancestor[n]+1],Ancestor[n]+1,n,t] == 0)
     );
 
     # Balancing - root node
@@ -163,7 +167,7 @@ function PerfectForesight(RealPath, solutions)
         )
     );
     # Balancing - usual nodes
-    @constraint(m, Balance[n = 1:NNodes, t = 1:H; n!=0+1 && n!=3+1 && n!=8+1],
+    @constraint(m, Balance[l = 1:NLayers, n in LayerNodes[l], t = 1:H; ~(n==1 || n in HeadNodes[l] || n in LeafNodes[l])],
         (batterydischarge[n,t]+ loadshedding[n,t]
         - productionshedding[n,t]- batterycharge[n,t]
         - pflow[n-1,t]
@@ -172,7 +176,7 @@ function PerfectForesight(RealPath, solutions)
         )
     );
     # Balancing - head node
-    @constraint(m, Balance_headnode[n in [8+1], t = 1:H],
+    @constraint(m, Balance_headnode[l = 1:NLayers, n in HeadNodes[l], t = 1:H; ~(n in LeafNodes[l])],
         (batterydischarge[n,t]+ loadshedding[n,t]
         - productionshedding[n,t]- batterycharge[n,t]
         + pflow[n-1,t]
@@ -181,12 +185,22 @@ function PerfectForesight(RealPath, solutions)
         )
     );
     # Balancing - leaf node
-    @constraint(m, Balance_leafnode[n in [3+1], t = 1:H],
+    @constraint(m, Balance_leafnode[l=1:NLayers, n in LeafNodes[l], t = 1:H; ~(n in HeadNodes[l])],
         (batterydischarge[n,t]+ loadshedding[n,t]
         - productionshedding[n,t]- batterycharge[n,t]
         - pflow[n-1,t]
-        + sum(pflow[m,t] for m in [4])
-        - p_out[t]
+        + sum(pflow[j,t] for j in Children[n] if ~(j+1 in LeafChildren[l,n]))
+        - sum(p_out[l,n,j,t] for j in LeafChildren[l,n])
+        == PNetDemand[n,t][RealPath[Node2Layer[n],t]]
+        )
+    );
+    # Balancing - head-leaf node
+    @constraint(m, Balance_headleafnode[l=1:NLayers, n in LeafNodes[l], t = 1:H; n in HeadNodes[l]],
+        (batterydischarge[n,t]+ loadshedding[n,t]
+        - productionshedding[n,t]- batterycharge[n,t]
+        + pflow[n-1,t]
+        + sum(pflow[j,t] for j in Children[n] if ~(j+1 in LeafChildren[l,n]))
+        - sum(p_out[l,n,j,t] for j in LeafChildren[l,n])
         == PNetDemand[n,t][RealPath[Node2Layer[n],t]]
         )
     );
@@ -212,8 +226,8 @@ function PerfectForesight(RealPath, solutions)
     solutions.batterydischarge[:,:] = getvalue(batterydischarge);
     solutions.loadshedding[:,:] = getvalue(loadshedding);
     solutions.productionshedding[:,:] = getvalue(productionshedding);
-    solutions.p_in[:] = getvalue(p_in);
-    solutions.p_out[:] = getvalue(p_out);
+    # solutions.p_in[:] = getvalue(p_in);
+    # solutions.p_out[:] = getvalue(p_out);
     solutions.StageCost[:] = [(sum(MargCost[i]*solutions.pgeneration[i,t] for i = 1:NGenerators)
             +VOLL*sum(solutions.loadshedding[:,t])) for t=1:H]
     # solutions.StageCost[:] = [(sum(MargCost[i]*solutions.pgeneration[i,t] for i = 1:NGenerators)+ VOLL * sum(solutions.loadshedding[n,t], for n = 1:NNodes)) for t = 1:H]

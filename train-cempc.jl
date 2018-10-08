@@ -1,14 +1,17 @@
 ### Implement ce-mpc with JuMP
+
 using DataFrames, JuMP, Gurobi, CSV, JSON
-include("test-source.jl")
-solver = GurobiSolver(LogToConsole=0, LogFile="log/train-CeMPC.log")
+include("src/source.jl")
 
 # number of samples
 NSamples = 2;
 
+# define solver
+solver = GurobiSolver(LogToConsole=0, LogFile="log/train-CeMPC.log")
+
 ## Read CSV data
 lines_df = CSV.read("data/twolayer-lines.csv")
-nodes_df = CSV.read("data/twolayer-nodes.csv")
+nodes_df = Read_nodes_csv("data/twolayer-nodes.csv")  # see src/source.jl
 generators_df = CSV.read("data/twolayer-generators.csv")
 
 ## Read JSON
@@ -16,23 +19,6 @@ PNetDemand = ConvertPNetDemand2Array("data/two_ND.json")
 TransProb = ConvertTransProb2Array("data/two_TP.json")
 PGenerationMax = ConvertPGenerationCapacity2Array("data/two_PMax.json")
 PGenerationMin = ConvertPGenerationCapacity2Array("data/two_PMin.json")
-
-## Data clearning
-# convert Children to Array
-s = []
-for i = 1:nrow(nodes_df)
-    if typeof(nodes_df[i,:Children]) == Missing
-        push!(s,[])
-    else
-        push!(s,map(parse,split(nodes_df[i,:Children])))
-    end
-end
-nodes_df[:Children] = s  # assign
-## check DataFrames
-# print(nodes_df)
-# print(lines_df)
-# print(generators_df)
-# print(PNetDemand_df)
 
 ## Problem Parameters
 # generators
@@ -59,10 +45,12 @@ NLayers = size(TransProb,1)
 NLines = nrow(lines_df)
 NNodes = nrow(nodes_df)
 NGenerators = nrow(generators_df)
-NLattice = Array{Int64}(H)
-for t=1:H
-    NLattice[t] = size(PNetDemand[1,t],1)
-end
+NLattice = [size(PNetDemand[1,t],1) for t = 1:H]
+# Policy specific parameters: expected value of stochastic parameters
+PNetDemand_fix = Array{Float64}(NNodes, H);
+PGenerationMax_fix = Array{Float64}(NGenerators, H);
+PGenerationMin_fix = Array{Float64}(NGenerators, H);
+
 
 ## Store Solutions
 struct Solutions
@@ -93,22 +81,8 @@ struct Solutions
         zeros(Float64,H)
     )
 end
-# pflow_Solution = Array{Float64}(NLines, H, NSamples)
-# pgeneration_Solution = Array{Float64}(NGenerators, H, NSamples)
-# storage_Solution = Array{Float64}(NNodes, H, NSamples)
-# batterycharge_Solution = Array{Float64}(NNodes, H, NSamples)
-# batterydischarge_Solution = Array{Float64}(NNodes, H, NSamples)
-# loadshedding_Solution = Array{Float64}(NNodes, H, NSamples)
-# productionshedding_Solution = Array{Float64}(NNodes, H, NSamples)
-# p_in_Solution = Array{Float64}(H, NSamples)
-# p_out_Solution = Array{Float64}(H, NSamples)
 
 
-## Compute expected value of stochastic parameters
-PNetDemand_fix = Array{Float64}(NNodes, H);
-PGenerationMax_fix = Array{Float64}(NGenerators, H);
-PGenerationMin_fix = Array{Float64}(NGenerators, H);
-##
 function ComputeExpectedParameters(TimeChoice,ScenarioChoice)
     "
     Compute expected value of stochastic parameters of the problem, i.e.
@@ -165,8 +139,17 @@ end
 
 
 ## implement certainty-equivalent Model Predictive Control
-function CeMPC(TimeChoice,ScenarioChoice,SampleChoice, solutions)
+function CeMPC(TimeChoice, RealPath, solutions)
+    "
+    implement ce-mpc (certainty-equivalent MPC)
+    Args:
+        - TimeChoice: 'current' stage
+        - RealPath: Real path of the 'current' sample
+        - solutions: an instance of the struct Solutions
+    note: results will be stored in `solutions` thus return is Void
+    "
     ## Compute expected value of stochastic parameters
+    ScenarioChoice = RealPath[:,TimeChoice]
     PNetDemand_fix, PGenerationMax_fix, PGenerationMin_fix = ComputeExpectedParameters(TimeChoice,ScenarioChoice)
 
     ## Build model
@@ -185,7 +168,7 @@ function CeMPC(TimeChoice,ScenarioChoice,SampleChoice, solutions)
 
     ## Objective - minimize cost of generation and load shedding
     @objective(m, Min,
-        (sum(MargCost[i]*pgeneration[i,u] for i in 1:NGenerators, u = TimeChoice:H)
+        (sum(MargCost[i]*pgeneration[i,u] for i = 1:NGenerators, u = TimeChoice:H)
         + VOLL * sum(loadshedding))
     );
 
@@ -198,7 +181,7 @@ function CeMPC(TimeChoice,ScenarioChoice,SampleChoice, solutions)
              - BatteryChargeEfficiency[n] * batterycharge[n,1]
              + batterydischarge[n,1]/BatteryDischargeEfficiency[n]
              == 0)
-        )
+        );
     else
         # current stage
         @constraint(m, BatteryDynamics_current[n=1:NNodes],
@@ -206,7 +189,7 @@ function CeMPC(TimeChoice,ScenarioChoice,SampleChoice, solutions)
              - BatteryChargeEfficiency[n] * batterycharge[n,TimeChoice]
              + batterydischarge[n,TimeChoice]/BatteryDischargeEfficiency[n]
             == 0)
-        )
+        );
     end
     # future stages
     if TimeChoice < H
@@ -215,40 +198,40 @@ function CeMPC(TimeChoice,ScenarioChoice,SampleChoice, solutions)
              - BatteryChargeEfficiency[n] * batterycharge[n,u]
              + batterydischarge[n,u]/BatteryDischargeEfficiency[n]
             == 0)
-        )
+        );
     end
 
     # Flow Limits
     @constraint(m, FlowMax[i=1:NLines, u = TimeChoice:H],
         (pflow[i,u] <= SLimit[i])
-    )
+    );
     @constraint(m, FlowMin[i=1:NLines, u = TimeChoice:H],
         ( - pflow[i,u] <= SLimit[i])
-    )
+    );
 
     # Storage Capacity
     @constraint(m, StorageMax[n=1:NNodes, u = TimeChoice:H],
         (storage[n,u] <= BatteryCapacity[n])
-    )
+    );
 
     # Charging Capacity
     @constraint(m, BatteryChargeMax[n=1:NNodes, u = TimeChoice:H],
         (batterycharge[n,u] <= BatteryChargeRate[n])
-    )
+    );
 
     # Discharging Capacity
     @constraint(m, BatteryDischargeMax[n=1:NNodes, u = TimeChoice:H],
         (batterydischarge[n,u] <= BatteryChargeRate[n])
-    )
+    );
 
     # p_in & pflow equality
     @constraint(m, Pin_Flow_equality[u = TimeChoice:H],
         (p_in[u] - pflow[8,u] == 0)
-    )
+    );
     # p_in & p_out equality
     @constraint(m, Pin_Pout_equality[u = TimeChoice:H],
         (p_in[u] - p_out[u] == 0)
-    )
+    );
 
     # Balancing
     # root node
@@ -259,17 +242,8 @@ function CeMPC(TimeChoice,ScenarioChoice,SampleChoice, solutions)
         + sum(pflow[m,u] for m in Children[1])
         == PNetDemand_fix[1,u]
         )
-    )
-    ## Balancing - usual node
-    # @constraint(m, Balance[n=1:NNodes, t in T; n!=0],
-    #     (batterydischarge[n,TimeChoice]+ loadshedding[n,TimeChoice]
-    #     - productionshedding[n,TimeChoice]- batterycharge[n,TimeChoice]
-    #     - pflow[n,TimeChoice]
-    #     + sum(pflow[m,TimeChoice] for m in Children[n + 1])
-    #     == PNetDemand[n+1,TimeChoice]
-    #     )
-    # )
-
+    );
+    # Balancing - usual nodes
     @constraint(m, Balance[n = 1:NNodes, u = TimeChoice:H; n!=0+1 && n!=3+1 && n!=8+1],
         (batterydischarge[n,u]+ loadshedding[n,u]
         - productionshedding[n,u]- batterycharge[n,u]
@@ -277,8 +251,8 @@ function CeMPC(TimeChoice,ScenarioChoice,SampleChoice, solutions)
         + sum(pflow[m,u] for m in Children[n])
         == PNetDemand_fix[n,u]
         )
-    )
-    ## Balancing - head node
+    );
+    # Balancing - head node
     @constraint(m, Balance_headnode[n in [8+1], u = TimeChoice:H],
         (batterydischarge[n,u]+ loadshedding[n,u]
         - productionshedding[n,u]- batterycharge[n,u]
@@ -286,8 +260,8 @@ function CeMPC(TimeChoice,ScenarioChoice,SampleChoice, solutions)
         + sum(pflow[m,u] for m in Children[n])
         == PNetDemand_fix[n,u]
         )
-    )
-    ## Balancing - leaf node
+    );
+    # Balancing - leaf node
     @constraint(m, Balance_leafnode[n in [3+1], u = TimeChoice:H],
         (batterydischarge[n,u]+ loadshedding[n,u]
         - productionshedding[n,u]- batterycharge[n,u]
@@ -296,19 +270,17 @@ function CeMPC(TimeChoice,ScenarioChoice,SampleChoice, solutions)
         - p_out[u]
         == PNetDemand_fix[n,u]
         )
-    )
-    ## Generation Limits
+    );
+    # Generation Limits
     @constraint(m, GenerationMax[i = 1:NGenerators, u = TimeChoice:H],
         (pgeneration[i,u] <= PGenerationMax_fix[i,u])
-    )
+    );
     @constraint(m, GenerationMin[i = 1:NGenerators, u = TimeChoice:H],
         ( - pgeneration[i,u] <= - PGenerationMin_fix[i,u])
-    )
+    );
+    
     ## Solve
-    # println("Solving problem...")
-    status = solve(m)
-    # PrintSolution(status)
-    # println("Objective value: ", getobjectivevalue(m))
+    status = solve(m);
 
     ## Store Results
     solutions.pflow[:,TimeChoice] = getvalue(pflow[:,TimeChoice])
@@ -322,18 +294,6 @@ function CeMPC(TimeChoice,ScenarioChoice,SampleChoice, solutions)
     solutions.p_out[TimeChoice] = getvalue(p_out[TimeChoice])
     solutions.StageCost[TimeChoice] = (sum(MargCost[i]*solutions.pgeneration[i,TimeChoice] for i in 1:NGenerators)
                     + VOLL * sum(solutions.loadshedding[:,TimeChoice]))
-    # pflow_Solution[:,TimeChoice,SampleChoice] = getvalue(pflow[:,TimeChoice])
-    # pgeneration_Solution[:,TimeChoice,SampleChoice] = getvalue(pgeneration[:,TimeChoice])
-    # storage_Solution[:,TimeChoice,SampleChoice] = getvalue(storage[:,TimeChoice])
-    # batterycharge_Solution[:,TimeChoice,SampleChoice] = getvalue(batterycharge[:,TimeChoice])
-    # batterydischarge_Solution[:,TimeChoice,SampleChoice] = getvalue(batterydischarge[:,TimeChoice])
-    # loadshedding_Solution[:,TimeChoice,SampleChoice] = getvalue(loadshedding[:,TimeChoice])
-    # productionshedding_Solution[:,TimeChoice,SampleChoice] = getvalue(productionshedding[:,TimeChoice])
-    # p_in_Solution[TimeChoice,SampleChoice] = getvalue(p_in[TimeChoice])
-    # p_out_Solution[TimeChoice,SampleChoice] = getvalue(p_in[TimeChoice])
-    # CurrentCost = (sum(MargCost[i]*pgeneration_Solution[i,TimeChoice,SampleChoice] for i in 1:NGenerators)
-    #                 + VOLL * sum(loadshedding_Solution[:,TimeChoice,SampleChoice]))
-    # return solution
     return
 end
 ## Generate samples scenarios
@@ -341,11 +301,14 @@ sample_path = SamplePath(TransProb,NSamples);
 
 ## Implementation
 SolutionsArray = [Solutions() for i=1:NSamples] # array contains Solutions structs
+@printf("==== Start certainty-equivalent MPC ====\n")
 for i = 1:NSamples
+    RealPath = sample_path[:,:,i]
     for t = 1:H
-        ScenarioChoice = sample_path[:,t,i]
-        CeMPC(t,ScenarioChoice,i, SolutionsArray[i]);
+        # ScenarioChoice = sample_path[:,t,i]
+        # CeMPC(t,ScenarioChoice,i, SolutionsArray[i]);
+        SbrMPC(t, RealPath, SolutionsArray[i]);
         @printf(" cost of stage %d sample No.%d:   %5.2f \$\n",t,i,SolutionsArray[i].StageCost[t])
     end
-    @printf("====Total cost of sample No.%d:   %5.2f \$====\n",i ,sum(SolutionsArray[i].StageCost[:]))
+    @printf("\n====Total cost of sample No.%d:   %5.2f \$====\n\n",i ,sum(SolutionsArray[i].StageCost[:]))
 end
