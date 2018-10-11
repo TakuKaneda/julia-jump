@@ -1,24 +1,27 @@
 ### Implement Perfect Foresight policy with JuMP
-
 using DataFrames, JuMP, Gurobi, CSV
 include("src/source.jl")
 
-# number of samples
+## choose the problem size
+# problem_size = {"two", "multi"}
+problem_size = "multi"
+
+## number of samples
 NSamples = 2;
 
-# define solver
-solver = GurobiSolver(LogToConsole=0, LogFile="log/train-CeMPC.log")
+## define solver
+solver = GurobiSolver(LogToConsole=0, LogFile="log/train-PerfectForesight.log")
 
 ## Read CSV data
-lines_df = CSV.read("data/twolayer-lines.csv")
-nodes_df = Read_nodes_csv("data/twolayer-nodes.csv")  # see src/source.jl
-generators_df = CSV.read("data/twolayer-generators.csv")
+lines_df = CSV.read("data/" * problem_size * "layer-lines.csv")
+nodes_df = Read_nodes_csv("data/" * problem_size * "layer-nodes.csv")  # see src/source.jl
+generators_df = CSV.read("data/" * problem_size * "layer-generators.csv")
 
 ## Read JSON
-PNetDemand = ConvertPNetDemand2Array("data/two_ND.json")
-TransProb = ConvertTransProb2Array("data/two_TP.json")
-PGenerationMax = ConvertPGenerationCapacity2Array("data/two_PMax.json")
-PGenerationMin = ConvertPGenerationCapacity2Array("data/two_PMin.json")
+PNetDemand = ConvertPNetDemand2Array("data/" * problem_size * "_ND.json")
+TransProb = ConvertTransProb2Array("data/" * problem_size * "_TP.json")
+PGenerationMax = ConvertPGenerationCapacity2Array("data/" * problem_size * "_PMax.json")
+PGenerationMin = ConvertPGenerationCapacity2Array("data/" * problem_size * "_PMin.json")
 
 ## Problem Parameters
 # generators
@@ -57,8 +60,8 @@ struct Solutions
     batterydischarge::Array{Float64,2}
     loadshedding::Array{Float64,2}
     productionshedding::Array{Float64,2}
-    p_in::Array{Float64,1}
-    p_out::Array{Float64,1}
+    # p_in::Array{Float64,1}
+    # p_out::Array{Float64,1}
     StageCost::Array{Float64,1}
 
     # constructor
@@ -71,8 +74,8 @@ struct Solutions
         zeros(Float64,(NNodes, H)),
         zeros(Float64,(NNodes, H)),
         zeros(Float64,(NNodes, H)),
-        zeros(Float64,H),
-        zeros(Float64,H),
+        # zeros(Float64,H),
+        # zeros(Float64,H),
         zeros(Float64,H)
     )
 end
@@ -85,7 +88,6 @@ function PerfectForesight(RealPath, solutions)
         - solutions: an instance of the struct Solutions
     note: results will be stored in `solutions` thus return is Void
     "
-
     ## Build model
     m = Model(solver=solver)
 
@@ -97,8 +99,8 @@ function PerfectForesight(RealPath, solutions)
     @variable(m, batterydischarge[1:NNodes,1:H] >= 0)
     @variable(m, loadshedding[1:NNodes,1:H] >= 0)
     @variable(m, productionshedding[1:NNodes,1:H] >= 0)
-    @variable(m, p_in[1:H])
-    @variable(m, p_out[1:H])
+    # @variable(m, p_in[1:H])
+    # @variable(m, p_out[1:H])
 
     ## Objective - minimize cost of generation and load shedding
     @objective(m, Min,
@@ -145,13 +147,13 @@ function PerfectForesight(RealPath, solutions)
     );
 
     # p_in & pflow equality
-    @constraint(m, Pin_Flow_equality[t = 1:H],
-        (p_in[t] - pflow[8,t] == 0)
-    );
-    # p_in & p_out equality
-    @constraint(m, Pin_Pout_equality[t = 1:H],
-        (p_in[t] - p_out[t] == 0)
-    );
+    # @constraint(m, Pin_Flow_equality[t = 1:H],
+    #     (p_in[t] - pflow[8,t] == 0)
+    # );
+    # # p_in & p_out equality
+    # @constraint(m, Pin_Pout_equality[t = 1:H],
+    #     (p_in[t] - p_out[t] == 0)
+    # );
 
     # Balancing - root node
     @constraint(m, Balance1_rootnode[t = 1:H],
@@ -163,7 +165,7 @@ function PerfectForesight(RealPath, solutions)
         )
     );
     # Balancing - usual nodes
-    @constraint(m, Balance[n = 1:NNodes, t = 1:H; n!=0+1 && n!=3+1 && n!=8+1],
+    @constraint(m, Balance[n = 1:NNodes, t = 1:H ; n!=0+1 #=&& n!=3+1 && n!=8+1=#],
         (batterydischarge[n,t]+ loadshedding[n,t]
         - productionshedding[n,t]- batterycharge[n,t]
         - pflow[n-1,t]
@@ -172,24 +174,24 @@ function PerfectForesight(RealPath, solutions)
         )
     );
     # Balancing - head node
-    @constraint(m, Balance_headnode[n in [8+1], t = 1:H],
-        (batterydischarge[n,t]+ loadshedding[n,t]
-        - productionshedding[n,t]- batterycharge[n,t]
-        + pflow[n-1,t]
-        + sum(pflow[m,t] for m in Children[n])
-        == PNetDemand[n,t][RealPath[Node2Layer[n],t]]
-        )
-    );
-    # Balancing - leaf node
-    @constraint(m, Balance_leafnode[n in [3+1], t = 1:H],
-        (batterydischarge[n,t]+ loadshedding[n,t]
-        - productionshedding[n,t]- batterycharge[n,t]
-        - pflow[n-1,t]
-        + sum(pflow[m,t] for m in [4])
-        - p_out[t]
-        == PNetDemand[n,t][RealPath[Node2Layer[n],t]]
-        )
-    );
+    # @constraint(m, Balance_headnode[n in [8+1], t = 1:H],
+    #     (batterydischarge[n,t]+ loadshedding[n,t]
+    #     - productionshedding[n,t]- batterycharge[n,t]
+    #     + pflow[n-1,t]
+    #     + sum(pflow[m,t] for m in Children[n])
+    #     == PNetDemand[n,t][RealPath[Node2Layer[n],t]]
+    #     )
+    # );
+    # # Balancing - leaf node
+    # @constraint(m, Balance_leafnode[n in [3+1], t = 1:H],
+    #     (batterydischarge[n,t]+ loadshedding[n,t]
+    #     - productionshedding[n,t]- batterycharge[n,t]
+    #     - pflow[n-1,t]
+    #     + sum(pflow[m,t] for m in [4])
+    #     - p_out[t]
+    #     == PNetDemand[n,t][RealPath[Node2Layer[n],t]]
+    #     )
+    # );
 
     # Generation Limits
     @constraint(m, GenerationMax[g = 1:NGenerators, t=1:H],
@@ -212,12 +214,10 @@ function PerfectForesight(RealPath, solutions)
     solutions.batterydischarge[:,:] = getvalue(batterydischarge);
     solutions.loadshedding[:,:] = getvalue(loadshedding);
     solutions.productionshedding[:,:] = getvalue(productionshedding);
-    solutions.p_in[:] = getvalue(p_in);
-    solutions.p_out[:] = getvalue(p_out);
+    # solutions.p_in[:] = getvalue(p_in);
+    # solutions.p_out[:] = getvalue(p_out);
     solutions.StageCost[:] = [(sum(MargCost[i]*solutions.pgeneration[i,t] for i = 1:NGenerators)
             +VOLL*sum(solutions.loadshedding[:,t])) for t=1:H]
-    # solutions.StageCost[:] = [(sum(MargCost[i]*solutions.pgeneration[i,t] for i = 1:NGenerators)+ VOLL * sum(solutions.loadshedding[n,t], for n = 1:NNodes)) for t = 1:H]
-
     return
 end
 
@@ -230,7 +230,9 @@ SolutionsArray = [Solutions() for i=1:NSamples] # array contains Solutions struc
 for i = 1:NSamples
     RealPath = sample_path[:,:,i]
     # for t = 1:H
+    tic()
     PerfectForesight(RealPath, SolutionsArray[i]);
+    toc()
         # @printf(" cost of stage %d sample No.%d:   %5.2f \$\n",t,i,SolutionsArray[i].StageCost[t])
     # end
     @printf("\n====Total cost of sample No.%d:   %5.2f \$====\n\n",i ,sum(SolutionsArray[i].StageCost[:]))

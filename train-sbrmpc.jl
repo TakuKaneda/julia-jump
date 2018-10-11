@@ -1,7 +1,10 @@
 ### Implement sbr-mpc with JuMP
-
 using DataFrames, JuMP, Gurobi, CSV, JSON
 include("src/source.jl")
+
+## choose the problem size
+# problem_size = {"two", "multi"}
+problem_size = "multi"
 
 ########################
 # Hyperparameters of the algorithm: SET AS YOU WANT
@@ -12,19 +15,19 @@ DiscountFactor = 0.9;
 # number of samples
 NSamples = 2;
 
-# define solver
-solver = GurobiSolver(LogToConsole=0, LogFile="log/train-CeMPC.log")
+## define solver
+solver = GurobiSolver(LogToConsole=0, LogFile="log/train-PerfectForesight.log")
 
 ## Read CSV data
-lines_df = CSV.read("data/twolayer-lines.csv")
-nodes_df = Read_nodes_csv("data/twolayer-nodes.csv")  # see src/source.jl
-generators_df = CSV.read("data/twolayer-generators.csv")
+lines_df = CSV.read("data/" * problem_size * "layer-lines.csv")
+nodes_df = Read_nodes_csv("data/" * problem_size * "layer-nodes.csv")  # see src/source.jl
+generators_df = CSV.read("data/" * problem_size * "layer-generators.csv")
 
 ## Read JSON
-PNetDemand = ConvertPNetDemand2Array("data/two_ND.json")
-TransProb = ConvertTransProb2Array("data/two_TP.json")
-PGenerationMax = ConvertPGenerationCapacity2Array("data/two_PMax.json")
-PGenerationMin = ConvertPGenerationCapacity2Array("data/two_PMin.json")
+PNetDemand = ConvertPNetDemand2Array("data/" * problem_size * "_ND.json")
+TransProb = ConvertTransProb2Array("data/" * problem_size * "_TP.json")
+PGenerationMax = ConvertPGenerationCapacity2Array("data/" * problem_size * "_PMax.json")
+PGenerationMin = ConvertPGenerationCapacity2Array("data/" * problem_size * "_PMin.json")
 
 ## Problem Parameters
 # generators
@@ -63,8 +66,8 @@ struct Solutions
     batterydischarge::Array{Float64,2}
     loadshedding::Array{Float64,2}
     productionshedding::Array{Float64,2}
-    p_in::Array{Float64,1}
-    p_out::Array{Float64,1}
+    # p_in::Array{Float64,1}
+    # p_out::Array{Float64,1}
     StageCost::Array{Float64,1}
 
     # constructor
@@ -77,8 +80,8 @@ struct Solutions
         zeros(Float64,(NNodes, H)),
         zeros(Float64,(NNodes, H)),
         zeros(Float64,(NNodes, H)),
-        zeros(Float64,H),
-        zeros(Float64,H),
+        # zeros(Float64,H),
+        # zeros(Float64,H),
         zeros(Float64,H)
     )
 end
@@ -132,8 +135,8 @@ function SbrMPC(TimeChoice, RealPath, solutions)
     @variable(m, batterydischarge[1:NNodes, TimeChoice:H, 1:NScenarios] >= 0)
     @variable(m, loadshedding[1:NNodes, TimeChoice:H, 1:NScenarios] >= 0)
     @variable(m, productionshedding[1:NNodes, TimeChoice:H, 1:NScenarios] >= 0)
-    @variable(m, p_in[TimeChoice:H, 1:NScenarios])
-    @variable(m, p_out[TimeChoice:H, 1:NScenarios])
+    # @variable(m, p_in[TimeChoice:H, 1:NScenarios])
+    # @variable(m, p_out[TimeChoice:H, 1:NScenarios])
     @variable(m, var_cost)
 
     ## Objective - minimize cost of generation and load shedding till the Horizon
@@ -199,14 +202,14 @@ function SbrMPC(TimeChoice, RealPath, solutions)
         (batterydischarge[n,u,s] <= BatteryChargeRate[n])
     );
 
-    # p_in & pflow equality
-    @constraint(m, Pin_Flow_equality[u = TimeChoice:H, s=1:NScenarios],
-        (p_in[u,s] - pflow[8,u,s] == 0)
-    );
-    # p_in & p_out equality
-    @constraint(m, Pin_Pout_equality[u = TimeChoice:H, s=1:NScenarios],
-        (p_in[u,s] - p_out[u,s] == 0)
-    );
+    # # p_in & pflow equality
+    # @constraint(m, Pin_Flow_equality[u = TimeChoice:H, s=1:NScenarios],
+    #     (p_in[u,s] - pflow[8,u,s] == 0)
+    # );
+    # # p_in & p_out equality
+    # @constraint(m, Pin_Pout_equality[u = TimeChoice:H, s=1:NScenarios],
+    #     (p_in[u,s] - p_out[u,s] == 0)
+    # );
 
     # Balancing - root node
     @constraint(m, Balance1_rootnode[u = TimeChoice:H, s=1:NScenarios],
@@ -218,30 +221,30 @@ function SbrMPC(TimeChoice, RealPath, solutions)
     );
     # Balancing - usual node
     @constraint(m, Balance[n = 1:NNodes, u = TimeChoice:H, s=1:NScenarios;
-    n!=0+1 && n!=3+1 && n!=8+1],
+    n!=0+1 #=&& n!=3+1 && n!=8+1=#],
         (batterydischarge[n,u,s]+ loadshedding[n,u,s]
         - productionshedding[n,u,s]- batterycharge[n,u,s]
         - pflow[n-1,u,s]
         + sum(pflow[m,u,s] for m in Children[n])
         == PNetDemand[n,u][SbrScenarios[Node2Layer[n],u,s]])
     );
-    # Balancing - head node
-    @constraint(m, Balance_headnode[n in [8+1], u = TimeChoice:H, s=1:NScenarios],
-        (batterydischarge[n,u,s]+ loadshedding[n,u,s]
-        - productionshedding[n,u,s]- batterycharge[n,u,s]
-        + pflow[n-1,u,s]
-        + sum(pflow[m,u,s] for m in Children[n])
-        == PNetDemand[n,u][SbrScenarios[Node2Layer[n],u,s]])
-    );
-    # Balancing - leaf node
-    @constraint(m, Balance_leafnode[n in [3+1], u = TimeChoice:H, s=1:NScenarios],
-        (batterydischarge[n,u,s]+ loadshedding[n,u,s]
-        - productionshedding[n,u,s]- batterycharge[n,u,s]
-        - pflow[n-1,u,s]
-        + sum(pflow[m,u,s] for m in [4])
-        - p_out[u,s]
-        == PNetDemand[n,u][SbrScenarios[Node2Layer[n],u,s]])
-    );
+    # # Balancing - head node
+    # @constraint(m, Balance_headnode[n in [8+1], u = TimeChoice:H, s=1:NScenarios],
+    #     (batterydischarge[n,u,s]+ loadshedding[n,u,s]
+    #     - productionshedding[n,u,s]- batterycharge[n,u,s]
+    #     + pflow[n-1,u,s]
+    #     + sum(pflow[m,u,s] for m in Children[n])
+    #     == PNetDemand[n,u][SbrScenarios[Node2Layer[n],u,s]])
+    # );
+    # # Balancing - leaf node
+    # @constraint(m, Balance_leafnode[n in [3+1], u = TimeChoice:H, s=1:NScenarios],
+    #     (batterydischarge[n,u,s]+ loadshedding[n,u,s]
+    #     - productionshedding[n,u,s]- batterycharge[n,u,s]
+    #     - pflow[n-1,u,s]
+    #     + sum(pflow[m,u,s] for m in [4])
+    #     - p_out[u,s]
+    #     == PNetDemand[n,u][SbrScenarios[Node2Layer[n],u,s]])
+    # );
 
     # Generation Limits
     @constraint(m, GenerationMax[g = 1:NGenerators, u = TimeChoice:H, s=1:NScenarios],
@@ -287,8 +290,8 @@ function SbrMPC(TimeChoice, RealPath, solutions)
     solutions.batterydischarge[:,TimeChoice] = getvalue(batterydischarge[:,TimeChoice,1])
     solutions.loadshedding[:,TimeChoice] = getvalue(loadshedding[:,TimeChoice,1])
     solutions.productionshedding[:,TimeChoice] = getvalue(productionshedding[:,TimeChoice,1])
-    solutions.p_in[TimeChoice] = getvalue(p_in[TimeChoice,1])
-    solutions.p_out[TimeChoice] = getvalue(p_out[TimeChoice,1])
+    # solutions.p_in[TimeChoice] = getvalue(p_in[TimeChoice,1])
+    # solutions.p_out[TimeChoice] = getvalue(p_out[TimeChoice,1])
     solutions.StageCost[TimeChoice] = (sum(MargCost[i]*solutions.pgeneration[i,TimeChoice] for i in 1:NGenerators)
                     + VOLL * sum(solutions.loadshedding[:,TimeChoice]))
 
@@ -304,7 +307,9 @@ SolutionsArray = [Solutions() for i=1:NSamples] # array contains Solutions struc
 for i = 1:NSamples
     RealPath = sample_path[:,:,i]
     for t = 1:H
+        tic()
         SbrMPC(t, RealPath, SolutionsArray[i]);
+        toc()
         @printf(" cost of stage %d sample No.%d:   %5.2f \$\n",t,i,SolutionsArray[i].StageCost[t])
     end
     @printf("\n====Total cost of sample No.%d:   %5.2f \$====\n\n",i ,sum(SolutionsArray[i].StageCost[:]))
