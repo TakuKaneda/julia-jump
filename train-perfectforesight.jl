@@ -203,7 +203,7 @@ function PerfectForesight(RealPath, solutions)
 
 
     ## Solve
-    status = solve(m);
+    @time status = solve(m);
     # println("Objective value: ", getobjectivevalue(m))
 
     ## Store Results

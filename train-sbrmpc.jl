@@ -13,7 +13,7 @@ DiscountFactor = 0.9;
 ########################
 
 # number of samples
-NSamples = 2;
+NSamples = 1;
 
 ## define solver
 solver = GurobiSolver(LogToConsole=0, LogFile="log/train-PerfectForesight.log")
@@ -280,7 +280,7 @@ function SbrMPC(TimeChoice, RealPath, solutions)
     );
 
     ## Solve
-    status = solve(m);
+    @time status = solve(m);
 
     ## Store Results
     solutions.pflow[:,TimeChoice] = getvalue(pflow[:,TimeChoice,1])

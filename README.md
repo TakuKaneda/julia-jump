@@ -9,6 +9,6 @@
 * `train-cempc.jl`: implements certainty-equivalent MPC
 * `train-sbrmpc.jl`: implements scenario-based robust MPC
 
-### `data/`: only two-layer problem for now
+### `data/`: two-layer / multi-layer problem of my master thesis
 * `*.json`: contain the corresponding stochastic parameters
 * `*.csv`: contain (deterministic) problem parameters

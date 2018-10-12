@@ -283,7 +283,7 @@ function CeMPC(TimeChoice, RealPath, solutions)
     );
 
     ## Solve
-    status = solve(m);
+    @time status = solve(m);
 
     ## Store Results
     solutions.pflow[:,TimeChoice] = getvalue(pflow[:,TimeChoice])
