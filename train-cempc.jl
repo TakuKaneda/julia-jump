@@ -10,7 +10,7 @@ problem_size = "multi"
 NSamples = 2;
 
 ## define solver
-solver = GurobiSolver(LogToConsole=0, LogFile="log/train-PerfectForesight.log")
+solver = GurobiSolver(LogToConsole=0, LogFile="log/train-cempc.log")
 
 ## Read CSV data
 lines_df = CSV.read("data/" * problem_size * "layer-lines.csv")

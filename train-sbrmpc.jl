@@ -16,7 +16,7 @@ DiscountFactor = 0.9;
 NSamples = 1;
 
 ## define solver
-solver = GurobiSolver(LogToConsole=0, LogFile="log/train-PerfectForesight.log")
+solver = GurobiSolver(LogToConsole=0, LogFile="log/train-sbrmpc.log")
 
 ## Read CSV data
 lines_df = CSV.read("data/" * problem_size * "layer-lines.csv")
