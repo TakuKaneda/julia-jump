@@ -299,7 +299,8 @@ function SbrMPC(TimeChoice, RealPath, solutions)
 end
 
 ## Generate samples scenarios
-sample_path = SamplePath(TransProb,NSamples);
+#sample_path = SamplePath(TransProb,NSamples);
+sample_path = ReadSamplePath("data/test_"* problem_size * "_samples.txt") # if you want to implement with the sample paths
 
 ## Implementation
 SolutionsArray = [Solutions() for i=1:NSamples] # array contains Solutions structs
