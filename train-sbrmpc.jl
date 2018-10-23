@@ -13,7 +13,7 @@ DiscountFactor = 0.9;
 ########################
 
 # number of samples
-NSamples = 1;
+NSamples = 2;
 
 ## define solver
 solver = GurobiSolver(LogToConsole=0, LogFile="log/train-sbrmpc.log")
@@ -303,13 +303,15 @@ sample_path = SamplePath(TransProb,NSamples);
 
 ## Implementation
 SolutionsArray = [Solutions() for i=1:NSamples] # array contains Solutions structs
+IterationTime = zeros(Float64,(H, NSamples))  # store timings
+
 @printf("==== Start scenario-based robust MPC ====\n")
 for i = 1:NSamples
     RealPath = sample_path[:,:,i]
     for t = 1:H
         tic()
         SbrMPC(t, RealPath, SolutionsArray[i]);
-        toc()
+        IterationTime[t,i] = toc()
         @printf(" cost of stage %d sample No.%d:   %5.2f \$\n",t,i,SolutionsArray[i].StageCost[t])
     end
     @printf("\n====Total cost of sample No.%d:   %5.2f \$====\n\n",i ,sum(SolutionsArray[i].StageCost[:]))

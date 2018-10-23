@@ -8,6 +8,9 @@
 * `train-cempc.jl`: implements certainty-equivalent MPC
 * `train-sbrmpc.jl`: implements scenario-based robust MPC
 
+### `src/`: source codes
+* `source.jl`: functions used in the policies such as reading data files
+
 ### `data/`: two-layer or multi-layer problem of my master thesis
 * `*.json`: contains the corresponding stochastic parameters
 * `*.csv`: contains (deterministic) problem parameters

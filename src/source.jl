@@ -187,3 +187,22 @@ function SamplePath(TransProb, NSamples=1)
     end
     return sample_path
 end
+
+
+function ReadSamplePath(path,H=24)
+    "
+    Read a sample path from a text file
+    Samples[l,t,i]: outcome of layer l at stage t of sample i
+    "
+    m = readdlm(path)  # read the text file as a matrix
+    NLayers = size(m,2)
+    NSamples = convert(Int64,size(m,1)/H)
+    Samples = zeros(Int64,(NLayers, H, NSamples))
+    for i=1:NSamples
+        for t = 1:H
+            idx = convert(Int64,t+(i-1)*H)
+            Samples[:,t,i] = m[idx,:]
+        end
+    end
+    return Samples
+end
