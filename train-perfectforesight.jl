@@ -7,7 +7,7 @@ include("src/source.jl")
 problem_size = "multi"
 
 ## number of samples
-NSamples = 2;
+NSamples = 3;
 
 ## define solver
 solver = GurobiSolver(LogToConsole=0, LogFile="log/train-perfectforesight.log")
@@ -107,6 +107,11 @@ function PerfectForesight(RealPath, solutions)
         (sum(MargCost[g]*pgeneration[g,t] for g=1:NGenerators, t=1:H)
         + VOLL * sum(loadshedding))
     );
+    ## quadratic optimization
+    # @objective(m, Min,
+    #     (sum(MargCost[i]*(pgeneration[i,u])^2 for i = 1:NGenerators, u = 1:H)
+    #     + VOLL * sum(loadshedding[n,u]^2 for n=1:NNodes,u=1:H))
+    # );
 
     ## Constraints
     # dynamics
@@ -222,17 +227,20 @@ function PerfectForesight(RealPath, solutions)
 end
 
 ## Generate samples scenarios
-sample_path = SamplePath(TransProb,NSamples);
+#sample_path = SamplePath(TransProb,NSamples);
+sample_path = ReadSamplePath("data/test_"* problem_size * "_samples.txt") # if you want to implement with the sample paths
 
 ## Implementation
 SolutionsArray = [Solutions() for i=1:NSamples] # array contains Solutions structs
+IterationTime = zeros(Float64,(NSamples))  # store timings
+
 @printf("==== Start Perfect Foresight ====\n")
 for i = 1:NSamples
     RealPath = sample_path[:,:,i]
     # for t = 1:H
     tic()
     PerfectForesight(RealPath, SolutionsArray[i]);
-    toc()
+    IterationTime[i] = toc()
         # @printf(" cost of stage %d sample No.%d:   %5.2f \$\n",t,i,SolutionsArray[i].StageCost[t])
     # end
     @printf("\n====Total cost of sample No.%d:   %5.2f \$====\n\n",i ,sum(SolutionsArray[i].StageCost[:]))

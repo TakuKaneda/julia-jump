@@ -174,6 +174,11 @@ function CeMPC(TimeChoice, RealPath, solutions)
         (sum(MargCost[i]*pgeneration[i,u] for i = 1:NGenerators, u = TimeChoice:H)
         + VOLL * sum(loadshedding))
     );
+    ## quadratic optimization
+    # @objective(m, Min,
+    #     (sum(MargCost[i]*(pgeneration[i,u])^2 for i = 1:NGenerators, u = TimeChoice:H)
+    #     + VOLL * sum(loadshedding[n,u]^2 for n=1:NNodes,u=TimeChoice:H))
+    # );
 
     ## Constraints
     # dynamics
