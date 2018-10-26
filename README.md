@@ -8,6 +8,10 @@
 * `train-cempc.jl`: implements certainty-equivalent MPC
 * `train-sbrmpc.jl`: implements scenario-based robust MPC
 
+### `parallel-*.jl`: main-codes for implementing a policy in parallel
+`prarallel/`: dir which contains the MPC functions or data loading functions
+* `parallel-run-cempc.jl`: implements certainty-equivalent MPC in parallel
+
 ### `src/`: source codes
 * `source.jl`: functions used in the policies such as reading data files
 
