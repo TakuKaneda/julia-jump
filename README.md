@@ -1,6 +1,6 @@
 # julia-jump
 
-## Translate AMPL to JuMP
+## Translate AMPL to Julia with JuMP
 **Note: the codes assume you use Gurobi**
 
 ### `train-*.jl`: proto-codes for implementing a policy
