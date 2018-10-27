@@ -10,7 +10,9 @@
 
 ### `parallel-*.jl`: main-codes for implementing a policy in parallel
 `prarallel/`: dir which contains the MPC functions or data loading functions
+* `parallel-run-perfectforesight.jl`: implements perfect foresight policy for a deterministic problem in parallel
 * `parallel-run-cempc.jl`: implements certainty-equivalent MPC in parallel
+* `parallel-run-sbrmpc.jl`: implements scenario-based robust MPC in parallel
 
 ### `src/`: source codes
 * `source.jl`: functions used in the policies such as reading data files

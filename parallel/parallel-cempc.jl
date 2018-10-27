@@ -1,7 +1,6 @@
 """
 Define the function of ce-mpc with JuMP for parallel computing
 """
-## load data
 
 ## define solver
 solver = GurobiSolver(LogToConsole=0, LogFile="log/parallel-cempc.log")
