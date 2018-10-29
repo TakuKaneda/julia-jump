@@ -11,7 +11,6 @@ function PerfectForesight(RealPath, solutions)
     Args:
         - RealPath: Real path of the 'current' sample
         - solutions: an instance of the struct Solutions
-    note: results will be stored in `solutions` thus return is Void
     "
     ## Build model
     m = Model(solver=solver)

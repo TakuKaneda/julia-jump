@@ -37,7 +37,6 @@ function SbrMPC(TimeChoice, RealPath, solutions)
         - TimeChoice: 'current' stage
         - RealPath: Real path of the 'current' sample
         - solutions: an instance of the struct Solutions
-    note: results will be stored in `solutions` thus return is Void
     "
     ## Generate scenarios
     SbrScenarios = ScenarioGenerator(TimeChoice, RealPath);

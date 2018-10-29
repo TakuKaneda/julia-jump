@@ -8,6 +8,12 @@ NSamples = 3;
 NProcessors = 2;
 addprocs(NProcessors)  # add processors
 
+########################
+# Hyperparameters of the algorithm: SET AS YOU WANT
+@everywhere NScenarios = 5; # number of generated scenarios at each stage
+@everywhere DiscountFactor = 0.9;
+########################
+
 ## load global modules, problem data and MPC function
 @everywhere problem_size = "two" # two or multi: problem name
 @everywhere using DataFrames, JuMP, Gurobi, CSV, JSON
