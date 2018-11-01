@@ -30,7 +30,7 @@ function ScenarioGenerator(TimeChoice, RealPath)
 end
 
 
-function SbrMPC(TimeChoice, RealPath, solutions)
+function SbrMPC(TimeChoice, RealPath, solutions, idx=NaN)
     "
     implement sbr-mpc (scenario-based robust MPC)
     Args:
@@ -197,7 +197,8 @@ function SbrMPC(TimeChoice, RealPath, solutions)
     );
 
     ## Solve
-    @time status = solve(m);
+    # @time status = solve(m);
+    status = solve(m);
 
     ## Store Results
     solutions.pflow[:,TimeChoice] = getvalue(pflow[:,TimeChoice,1])
@@ -211,5 +212,26 @@ function SbrMPC(TimeChoice, RealPath, solutions)
     # solutions.p_out[TimeChoice] = getvalue(p_out[TimeChoice,1])
     solutions.StageCost[TimeChoice] = (sum(MargCost[i]*solutions.pgeneration[i,TimeChoice] for i in 1:NGenerators)
                     + VOLL * sum(solutions.loadshedding[:,TimeChoice]))
-    return solutions.StageCost[TimeChoice]  # return the current stage cost
+    if isnan(idx)
+        println("Stage $TimeChoice, StageCost is $(solutions.StageCost[TimeChoice])")
+    else
+        println("Sample $idx, Stage $TimeChoice, StageCost is $(solutions.StageCost[TimeChoice])")
+    end
+    return #solutions.StageCost[TimeChoice]  # return the current stage cost
+end
+
+function SbrMPC_all(idx)
+    "
+    Implement sbr MPC over a sample
+    "
+    solutions = Solutions()  # define solution struct
+    RealPath = SamplePath(TransProb);  # generate a sample
+    println("Sample $idx Start")
+    for  t = 1:H
+        tic();
+        SbrMPC(t, RealPath, solutions, idx)
+        solutions.IterationTime[t] = toc();
+    end
+    println("Sample $idx Finish")
+    return solutions
 end

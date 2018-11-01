@@ -5,7 +5,7 @@ Define the function of perfect foresight with JuMP for parallel computing
 ## define solver
 solver = GurobiSolver(LogToConsole=0, LogFile="log/parallel-perfectforesight.log")
 
-function PerfectForesight(RealPath, solutions)
+function PerfectForesight(RealPath, solutions, idx=NaN)
     "
     implement perfect foresight policy
     Args:
@@ -132,7 +132,8 @@ function PerfectForesight(RealPath, solutions)
 
 
     ## Solve
-    @time status = solve(m);
+    # @time status = solve(m);
+    status = solve(m);
     # println("Objective value: ", getobjectivevalue(m))
 
     ## Store Results
@@ -147,5 +148,22 @@ function PerfectForesight(RealPath, solutions)
     # solutions.p_out[:] = getvalue(p_out);
     solutions.StageCost[:] = [(sum(MargCost[i]*solutions.pgeneration[i,t] for i = 1:NGenerators)
             +VOLL*sum(solutions.loadshedding[:,t])) for t=1:H]
-    return solutions.StageCost[:]
+    if isnan(idx)
+        println("Total cost is $(sum(solutions.StageCost[:]))")
+    else
+        println("Sample $idx, Total cost is $(sum(solutions.StageCost[:]))")
+    end
+    return #solutions.StageCost[:]
+end
+
+function PerfectForesight_all(idx)
+    "
+    Implement PerfectForesight over a sample
+    "
+    solutions = Solutions()  # define solution struct
+    RealPath = SamplePath(TransProb);  # generate a sample
+    tic();
+    PerfectForesight(RealPath, solutions, idx)
+    solutions.IterationTime[1] = toc();  # store the time in the first element
+    return solutions
 end

@@ -236,9 +236,7 @@ function CeMPC_all(idx)
     Implement ce MPC over a sample
     "
     solutions = Solutions()  # define solution struct
-    IterationTime = Array{Float64}(H)
     RealPath = SamplePath(TransProb);  # generate a sample
-    #StageCostArray = Array{Float64}(H)
     println("Sample $idx Start")
     for  t = 1:H
         tic();
