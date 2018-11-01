@@ -4,7 +4,7 @@ include("src/source.jl")
 
 ## choose the problem size
 # problem_size = {"two", "multi"}
-problem_size = "multi"
+problem_size = "two"
 
 ## number of samples
 NSamples = 3;

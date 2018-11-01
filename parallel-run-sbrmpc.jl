@@ -2,7 +2,7 @@
 Implement sbr-mpc with JuMP in parallel
 """
 ## number of samples
-NSamples = 3;
+NSamples = 4;
 
 ## number of processors
 NProcessors = 2;
@@ -15,7 +15,7 @@ addprocs(NProcessors)  # add processors
 ########################
 
 ## load global modules, problem data and MPC function
-@everywhere problem_size = "two" # two or multi: problem name
+@everywhere problem_size = "multi" # two or multi: problem name
 @everywhere using DataFrames, JuMP, Gurobi, CSV, JSON
 @everywhere include("src/source.jl")  # functions used to load problem data
 @everywhere include("parallel/load_data.jl")  # load problem data
@@ -28,12 +28,13 @@ IterationTime = convert(SharedArray,zeros(Float64,(NSamples,H)));  # store timin
 
 ## Generate samples scenarios
 # sample_path = SamplePath(TransProb, NSamples);
-sample_path = ReadSamplePath("data/test_"* problem_size * "_samples.txt") # if you want to implement with the sample paths
+# sample_path = ReadSamplePath("data/test_"* problem_size * "_samples.txt") # if you want to implement with the sample paths
 
 ## Prallel for loop
 @printf("==== Start scenario-based robust MPC ====\n")
 @parallel for i = 1:NSamples
-    RealPath = sample_path[:,:,SampleID[i]]
+    # RealPath = sample_path[:,:,SampleID[i]]
+    RealPath = SamplePath(TransProb);
     solution = Solutions()
     for t = 1:H
         tic();

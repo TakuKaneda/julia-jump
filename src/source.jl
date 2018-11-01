@@ -185,7 +185,11 @@ function SamplePath(TransProb, NSamples=1)
             end
         end
     end
-    return sample_path
+    if NSamples == 1
+        return sample_path[:,:,1]
+    else
+        return sample_path
+    end
 end
 
 
