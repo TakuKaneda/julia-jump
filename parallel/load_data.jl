@@ -46,7 +46,7 @@ PGenerationMax_fix = Array{Float64}(NGenerators, H);
 PGenerationMin_fix = Array{Float64}(NGenerators, H);
 
 ## Store Solutions
-immutable Solutions # change to immutable so as to be converted to SharedArray
+struct Solutions # change to immutable so as to be converted to SharedArray
     "struct that stores solutions over a sample"
     pflow::Array{Float64,2}
     pgeneration::Array{Float64,2}
@@ -58,6 +58,7 @@ immutable Solutions # change to immutable so as to be converted to SharedArray
     # p_in::Array{Float64,1}
     # p_out::Array{Float64,1}
     StageCost::Array{Float64,1}
+    IterationTime::Array{Float64,1}
 
     # constructor
     # maybe there is a better way to assign default values
@@ -71,6 +72,7 @@ immutable Solutions # change to immutable so as to be converted to SharedArray
         zeros(Float64,(NNodes, H)),
         # zeros(Float64,H),
         # zeros(Float64,H),
+        zeros(Float64,H),
         zeros(Float64,H)
     )
 end

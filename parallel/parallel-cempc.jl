@@ -62,7 +62,7 @@ end
 
 
 ## implement certainty-equivalent Model Predictive Control
-function CeMPC(TimeChoice, RealPath, solutions)
+function CeMPC(TimeChoice, RealPath, solutions, idx=NaN)
 
     "
     implement ce-mpc (certainty-equivalent MPC)
@@ -208,7 +208,8 @@ function CeMPC(TimeChoice, RealPath, solutions)
     );
 
     ## Solve
-    @time status = solve(m);
+    # @time status = solve(m);
+    status = solve(m);
 
     ## Store Results
     solutions.pflow[:,TimeChoice] = getvalue(pflow[:,TimeChoice])
@@ -222,5 +223,28 @@ function CeMPC(TimeChoice, RealPath, solutions)
     # solutions.p_out[TimeChoice] = getvalue(p_out[TimeChoice])
     solutions.StageCost[TimeChoice] = (sum(MargCost[i]*solutions.pgeneration[i,TimeChoice] for i in 1:NGenerators)
                     + VOLL * sum(solutions.loadshedding[:,TimeChoice]))
-    return solutions.StageCost[TimeChoice]  # return the current stage cost
+    if isnan(idx)
+        println("Stage $TimeChoice, StageCost is $(solutions.StageCost[TimeChoice])")
+    else
+        println("Sample $idx, Stage $TimeChoice, StageCost is $(solutions.StageCost[TimeChoice])")
+    end
+    return #solutions.StageCost[TimeChoice]  # return the current stage cost
+end
+
+function CeMPC_all(idx)
+    "
+    Implement ce MPC over a sample
+    "
+    solutions = Solutions()  # define solution struct
+    IterationTime = Array{Float64}(H)
+    RealPath = SamplePath(TransProb);  # generate a sample
+    #StageCostArray = Array{Float64}(H)
+    println("Sample $idx Start")
+    for  t = 1:H
+        tic();
+        CeMPC(t, RealPath, solutions, idx)
+        solutions.IterationTime[t] = toc();
+    end
+    println("Sample $idx Finish")
+    return solutions
 end

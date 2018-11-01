@@ -2,7 +2,7 @@
 Implement sbr-mpc with JuMP in parallel
 """
 ## number of samples
-NSamples = 4;
+NSamples = 6;
 
 ## number of processors
 NProcessors = 2;
