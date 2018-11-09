@@ -4,10 +4,10 @@ include("src/source.jl")
 
 ## choose the problem size
 # problem_size = {"two", "multi"}
-problem_size = "two"
+problem_size = "multi"
 
 ## number of samples
-NSamples = 3;
+NSamples = 4;
 
 ## define solver
 solver = GurobiSolver(LogToConsole=0, LogFile="log/train-cempc.log")
@@ -305,8 +305,8 @@ function CeMPC(TimeChoice, RealPath, solutions)
     return
 end
 ## Generate samples scenarios
-#sample_path = SamplePath(TransProb,NSamples);
-sample_path = ReadSamplePath("data/test_"* problem_size * "_samples.txt") # if you want to implement with the sample paths
+sample_path = SamplePath(TransProb,NSamples);
+#sample_path = ReadSamplePath("data/test_"* problem_size * "_samples.txt") # if you want to implement with the sample paths
 
 ## Implementation
 SolutionsArray = [Solutions() for i=1:NSamples] # array contains Solutions structs

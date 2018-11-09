@@ -15,7 +15,7 @@ addprocs(NProcessors)  # add processors
 ########################
 
 ## load global modules, problem data and MPC function
-@everywhere problem_size = "two" # two or multi: problem name
+@everywhere problem_size = "multi" # two or multi: problem name
 @everywhere using DataFrames, JuMP, Gurobi, CSV, JSON
 @everywhere include("src/source.jl")  # functions used to load problem data
 @everywhere include("parallel/load_data.jl")  # load problem data
