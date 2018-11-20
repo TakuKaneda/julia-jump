@@ -3,6 +3,23 @@ using JuMP, Gurobi
 # Here we load the SDDP data
 include("LoadDataSDDP.jl")
 
+### TAKU add
+# define the cuts
+# eCut_test[l, t][k] has a vector of cut-RHS (`e^l_{t,k}` of NLDS of layer l at stage t, outcome k)
+# ECut_test[n, t][k] has a vector of cut-coefficients of node n (`E^l_{n,t,k}` of NLDS of layer l at stage t, outcome k)
+#   note that there are no cuts at stage H
+eCut_test = Array{Array}(NLayers,H-1)
+ECut_test = Array{Array}(NNodes,H-1)
+for t = 1:H-1
+    for l = 1:NLayers
+        eCut_test[l,t] = Array{Any}(NLattice[t]) # number of lattice
+    end
+    for n = 1:NNodes
+        ECut_test[n,t] = Array{Any}(NLattice[t]) # number of lattice
+    end
+end
+### end TAKU add
+
 # The struct to Store the solutions
 
 struct Solutions
@@ -82,6 +99,28 @@ function UsefulCut(LayerChoice, TimeChoice, etemp, Etemp)
     return boo
 end
 
+### TAKU add
+# Function that determines wether the obtained cut is repeated
+function UsefulCut_test(LayerChoice, TimeChoice, OutcomeChoice, etemp, Etemp)
+    "Function that determines wether the obtained cut is repeated
+    return  `true` : the cut is useful
+            `false`: otherwise
+    "
+    i = 1;
+    boo = true;
+    while boo == true && i <= length(eCut_test[LayerChoice, TimeChoice][OutcomeChoice])
+        Difference = sum(abs(ECut_test[n, TimeChoice][OutcomeChoice][i] - Etemp[n]) for n in LayerNodes[LayerChoice]) # compare E
+        Difference += abs(eCut_test[LayerChoice, TimeChoice][OutcomeChoice][i] - etemp) # compare e
+        if Difference < 10e-6
+            boo = false; # the cut is repeated i.e. unuseful
+        else
+            i = i+1; # go to the next cut that will be compared
+        end
+    end
+    return boo
+end
+### end TAKU add
+
 # The NLDS algorithm
 function NLDS(LayerChoice, SampleChoice, TimeChoice, OutcomeChoice, iter)
     " NLDS(t,k) "
@@ -91,7 +130,8 @@ function NLDS(LayerChoice, SampleChoice, TimeChoice, OutcomeChoice, iter)
     " OutcomeChoice -- Refers to the outcome k of time stage t"
 
     # Definition of the model
-    model = Model(solver=GurobiSolver())
+    model = Model(solver=GurobiSolver(LogToConsole=0))
+    # model = Model(solver=GurobiSolver())
     # Variables
     @variable(model, pflow[LayerLines[LayerChoice]]  );
     @variable(model, storage[LayerNodes[LayerChoice]] >= 0);
@@ -125,9 +165,9 @@ function NLDS(LayerChoice, SampleChoice, TimeChoice, OutcomeChoice, iter)
 
     # Battery Constraints
     if TimeChoice == 1
-        @constraint(model,  BatteryDynamics[n in LayerNodes[LayerChoice]], storage[n] - BatteryChargeEfficiency[n] * batterycharge[n] + batterydischarge[n]/BatteryDischargeEfficiency[n] - ini_storage[n] == 0 )
+        @constraint(model,  BatteryDynamics[n in LayerNodes[LayerChoice]], storage[n] - BatteryChargeEfficiency[n] * batterycharge[n] + batterydischarge[n]/BatteryDischargeEfficiency[n] - ini_storage[n] == 0.0 )
     else
-        @constraint(model,  BatteryDynamics[n in LayerNodes[LayerChoice]], storage[n] - BatteryChargeEfficiency[n] * batterycharge[n] + batterydischarge[n]/BatteryDischargeEfficiency[n] - storageTrials[LayerChoice, n, TimeChoice-1, SampleChoice, iter] == 0 )
+        @constraint(model,  BatteryDynamics[n in LayerNodes[LayerChoice]], storage[n] - BatteryChargeEfficiency[n] * batterycharge[n] + batterydischarge[n]/BatteryDischargeEfficiency[n] - storageTrials[n, TimeChoice-1, SampleChoice, iter] == 0.0 )
     end
 
     # Balance Constraints
@@ -160,7 +200,7 @@ function NLDS(LayerChoice, SampleChoice, TimeChoice, OutcomeChoice, iter)
     @constraint(model, Pout_fix[n in LeafNodes[LayerChoice], m in LeafChildren[LayerChoice,n]], p_out[n,m] == p_out_data[TimeChoice,OutcomeChoice] );
 
     # p_in & pflow equality constraint
-    @constraint(model, Pin_Flow_equality[n in HeadNodes[LayerChoice]], p_in[n] - pflow[n-1] == 0);
+    @constraint(model, Pin_Flow_equality[n in HeadNodes[LayerChoice]], p_in[n] - pflow[n-1] == 0.0);
 
     # Max Flow Limit contraint
     @constraint(model, FlowMax[n in LayerLines[LayerChoice]], pflow[n] <= SLimit[n]  );
@@ -178,16 +218,26 @@ function NLDS(LayerChoice, SampleChoice, TimeChoice, OutcomeChoice, iter)
     @constraint(model, BatteryDischargeMax[n in LayerNodes[LayerChoice]], batterydischarge[n] <= BatteryChargeRate[n]);
 
     # Optimality cuts and theta = zero in case TimeChoice is H
-    if TimeChoice == H
-        @constraint(model, theta == 0 )
+    # if TimeChoice == H
+    #     @constraint(model, theta == 0 )
+    # else
+    #     @constraint(model, Cuts[i = 1:length(eCut[LayerChoice, TimeChoice])],
+    #     theta  >= eCut[LayerChoice, TimeChoice][i] - sum(ECut[LayerChoice, TimeChoice, n][i]*storage[n] for n in LayerNodes[LayerChoice]) );
+    # end
+    ### TAKU add
+    if TimeChoice == H # no cuts
+        @constraint(model, theta == 0.0 )
     else
-        @constraint(model, Cuts[i = 1:length(eCut[LayerChoice, TimeChoice])],
-        theta  >= eCut[LayerChoice, TimeChoice][i] - sum(ECut[LayerChoice, TimeChoice, n][i]*storage[n] for n in LayerNodes[LayerChoice]) );
+        if isassigned(eCut_test[LayerChoice, TimeChoice], OutcomeChoice) # if there exist cuts
+            @constraint(model, Cuts[i = 1:length(eCut_test[LayerChoice, TimeChoice][OutcomeChoice])],
+            theta  >= eCut_test[LayerChoice, TimeChoice][OutcomeChoice][i] - sum(ECut_test[n,TimeChoice][OutcomeChoice][i] .* storage[n] for n in LayerNodes[LayerChoice]) );
+        end
     end
+    ### end TAKU add
 
     ##### Solve the Model
     solve(model)
-
+    println("       Stage Cost value: ", getobjectivevalue(model))
     ##### Here we return the results
     # Here we translate JuMP.Dict type of dual Multipliers & optimal decisions to Dict Type
     BatteryDynamicsMultipliers =  CreateDictionaryV( push!([], getdual(BatteryDynamics)) );
@@ -206,7 +256,7 @@ function NLDS(LayerChoice, SampleChoice, TimeChoice, OutcomeChoice, iter)
         BalanceMultipliers[1] = getdual(Balance_rootnode);
         GenerationMaxMultipliers = CreateDictionaryV( push!([], getdual(GenerationMax)) );
         GenerationMinMultipliers = CreateDictionaryV( push!([], getdual(GenerationMin)) );
-        if TimeChoice == H
+        if TimeChoice == H || !isassigned(eCut_test[LayerChoice, TimeChoice], OutcomeChoice) # TAKU modifided: at the last stage or there is no cut
             return Solutions(  CreateDictionaryV(push!([], getvalue(pflow))), CreateDictionaryV(push!([],getvalue(storage))),
             CreateDictionaryV(push!([],getvalue(batterycharge))), CreateDictionaryV(push!([],getvalue(batterydischarge))),
             CreateDictionaryV(push!([],getvalue(loadshedding))), CreateDictionaryV( push!([],getvalue(productionshedding))),
@@ -224,7 +274,7 @@ function NLDS(LayerChoice, SampleChoice, TimeChoice, OutcomeChoice, iter)
             GenerationMinMultipliers, getobjectivevalue(model) )
         end
     else
-        if TimeChoice == H
+        if TimeChoice == H || !isassigned(eCut_test[LayerChoice, TimeChoice], OutcomeChoice) #  TAKU modifided: at the last stage or there is no cut
             return Solutions(CreateDictionaryV(push!([], getvalue(pflow))), CreateDictionaryV(push!([],getvalue(storage))),
             CreateDictionaryV(push!([],getvalue(batterycharge))), CreateDictionaryV(push!([],getvalue(batterydischarge))),
             CreateDictionaryV(push!([],getvalue(loadshedding))), CreateDictionaryV( push!([],getvalue(productionshedding))),
@@ -249,21 +299,27 @@ function ForwardPass(K, LayerChoice, iter)
     " LayerChoice -- Refers to the current Layer"
     " iter -- Refers to the current iteration"
 
-    # Solve the First Stage
-    FirstNLDS = NLDS(LayerChoice, 1, 1, 1, iter);
+    # TAKU add
+    # Generate path: THE PATHS NEED TO BE GENERATED BY THE TRUE PROBABILITY (BY USING TransProb)
+    SampleScenario = SamplePath(TransProb, K)
+    # end TAKU add
 
+    # Solve the First Stage
+    println("   ====Forward Pass: solving layer ",LayerChoice,", Stage ", 1, ", Outcome ",1, ", Iteration ", iter)
+    FirstNLDS = NLDS(LayerChoice, 1, 1, 1, iter);
+    println("\n")
     # Store The Lower Bound
     LowerBound[LayerChoice, iter] = FirstNLDS.OptimalValue
     # Store the results
     for n in LayerLines[LayerChoice]
-        pflowTrials[LayerChoice, n, 1, :, iter] = FirstNLDS.pflow[n]*ones(K);
+        pflowTrials[n, 1, :, iter] = FirstNLDS.pflow[n]*ones(K);
     end
     for n in LayerNodes[LayerChoice]
-        storageTrials[LayerChoice, n, 1, :, iter] = FirstNLDS.storage[n]*ones(K);
-        batterychargeTrials[LayerChoice, n, 1, :, iter] = FirstNLDS.batterycharge[n]*ones(K);
-        batterydischargeTrials[LayerChoice, n, 1, :, iter] = FirstNLDS.batterydischarge[n]*ones(K);
-        loadsheddingTrials[LayerChoice, n, 1, : , iter] = FirstNLDS.loadshedding[n]*ones(K);
-        productionsheddingTrials[LayerChoice, n, 1, :, iter] = FirstNLDS.productionshedding[n]*ones(K);
+        storageTrials[n, 1, :, iter] = FirstNLDS.storage[n]*ones(K);
+        batterychargeTrials[n, 1, :, iter] = FirstNLDS.batterycharge[n]*ones(K);
+        batterydischargeTrials[n, 1, :, iter] = FirstNLDS.batterydischarge[n]*ones(K);
+        loadsheddingTrials[n, 1, : , iter] = FirstNLDS.loadshedding[n]*ones(K);
+        productionsheddingTrials[n, 1, :, iter] = FirstNLDS.productionshedding[n]*ones(K);
     end
     if LayerChoice == 1
         pgenerationTrials[1:NGenerators, 1, :, iter] = repmat(FirstNLDS.pgeneration,1,K)
@@ -273,19 +329,25 @@ function ForwardPass(K, LayerChoice, iter)
     for SampleChoice = 1:K
         for TimeChoice = 2:H
             # Solve the Stage
-            path[TimeChoice,SampleChoice,iter] = rand(1:NLattice[TimeChoice]);
-            NestedLDS = NLDS(LayerChoice, SampleChoice, TimeChoice, path[TimeChoice, SampleChoice, iter], iter);
-
+            # path[TimeChoice,SampleChoice,iter] = rand(1:NLattice[TimeChoice]);  #TAKU: This should be generated by using MC sampling (i.e. Trans prob)
+            # TAKU add
+            # choose the current scenario
+            ScenarioChoice = SampleScenario[LayerChoice,TimeChoice,SampleChoice]
+            println("   ====Forward Pass: solving layer ",LayerChoice,", Stage ", TimeChoice, ", Outcome ",ScenarioChoice, ", MC Sample ",SampleChoice, ", Iteration ",iter )
+            # NestedLDS = NLDS(LayerChoice, SampleChoice, TimeChoice, path[TimeChoice, SampleChoice, iter], iter);
+            NestedLDS = NLDS(LayerChoice, SampleChoice, TimeChoice, ScenarioChoice, iter);
+            println("\n")
+            # end TAKU add
             # Store the results
             for n in LayerLines[LayerChoice]
-                pflowTrials[LayerChoice, n, TimeChoice, SampleChoice, iter] = NestedLDS.pflow[n];
+                pflowTrials[n, TimeChoice, SampleChoice, iter] = NestedLDS.pflow[n];
             end
             for n in LayerNodes[LayerChoice]
-                batterychargeTrials[LayerChoice, n, TimeChoice, SampleChoice, iter] = NestedLDS.batterycharge[n];
-                storageTrials[LayerChoice, n, TimeChoice, SampleChoice, iter] = NestedLDS.storage[n] ;
-                batterydischargeTrials[LayerChoice, n, TimeChoice, SampleChoice, iter] = NestedLDS.batterydischarge[n];
-                loadsheddingTrials[LayerChoice, n, TimeChoice, SampleChoice, iter] = NestedLDS.loadshedding[n] ;
-                productionsheddingTrials[LayerChoice, n, TimeChoice, SampleChoice, iter] = NestedLDS.productionshedding[n];
+                batterychargeTrials[n, TimeChoice, SampleChoice, iter] = NestedLDS.batterycharge[n];
+                storageTrials[n, TimeChoice, SampleChoice, iter] = NestedLDS.storage[n] ;
+                batterydischargeTrials[n, TimeChoice, SampleChoice, iter] = NestedLDS.batterydischarge[n];
+                loadsheddingTrials[n, TimeChoice, SampleChoice, iter] = NestedLDS.loadshedding[n] ;
+                productionsheddingTrials[n, TimeChoice, SampleChoice, iter] = NestedLDS.productionshedding[n];
             end
             if LayerChoice == 1
                 pgenerationTrials[1:NGenerators, TimeChoice, SampleChoice, iter] = NestedLDS.pgeneration ;
@@ -295,47 +357,143 @@ function ForwardPass(K, LayerChoice, iter)
 end
 
 # Function for the BackwardPass
-function BackwardPass(K, LayerChoice, iter)
+# function BackwardPass(K, LayerChoice, iter)
+#     " K -- Refers to the number of Monte Carlo Samples"
+#     " LayerChoice -- Refers to the current Layer"
+#     " iter -- Refers to the current iteration"
+#     for t = 1:H-1
+#         for SampleChoice = 1:K
+#             etemp = 0.0;
+#             Etemp = Dict{Int64,Float64}(n => 0.0 for n in LayerNodes[LayerChoice]);
+#             for OutcomeChoice = 1:NLattice[H+1-t]
+#                 # The NLDS is solved
+#                 println("   ****Backward Pass: solving layer ",LayerChoice," , Stage ", H-t+1, " ,Outcome ",OutcomeChoice, " ,Sample ",SampleChoice )
+#                 NesLDS = NLDS(LayerChoice, SampleChoice, H-t+1, OutcomeChoice, iter);
+#                 println("   ****")
+#                 # The E coefficients are calculated
+#                 # The e coeficients are calculated
+#                 for n in HeadNodes[LayerChoice]
+#                     etemp = etemp + NesLDS.Pin_fix[n]*p_in_data[H-t+1,OutcomeChoice] ;
+#                 end
+#                 for n in LayerNodes[LayerChoice]
+#                     etemp = etemp + NesLDS.Balance[n]*PNetDemand[n,H-t+1][OutcomeChoice] + NesLDS.StorageMax[n]*BatteryCapacity[n] + NesLDS.BatteryChargeMax[n]*BatteryChargeRate[n] + NesLDS.BatteryDischargeMax[n]*BatteryChargeRate[n];
+#                     Etemp[n] = Etemp[n] - TransProb[LayerChoice,H-t][OutcomeChoice]*NesLDS.BatteryDynamics[n];
+#                 end
+#                 for n in LayerLines[LayerChoice]
+#                     etemp = etemp + NesLDS.FlowMax[n]*SLimit[n] + 2*NesLDS.FlowMin[n]*SLimit[n] ;
+#                 end
+#                 for n in LeafNodes[LayerChoice], m in LeafChildren[LayerChoice,n]
+#                     etemp = etemp + NesLDS.Pout_fix[[n, m]]*p_out_data[H-t+1,OutcomeChoice];
+#                 end
+#                 if LayerChoice == 1
+#                     etemp = etemp + sum( NesLDS.GenerationMax[g]*PGenerationMax[g, H-t+1][OutcomeChoice] for g = 1:NGenerators ) - sum( NesLDS.GenerationMin[g]*PGenerationMin[g,H-t+1][OutcomeChoice] for g = 1:NGenerators )
+#                 end
+#                 if t > 1
+#                     etemp = etemp + sum( NesLDS.Cuts[:].*eCut[LayerChoice, H+1-t][:]) ;
+#                 end
+#                 etemp = TransProb[LayerChoice,H-t][OutcomeChoice]*etemp;
+#             end
+#             # Here we check if the cut is useful
+#             if UsefulCut(LayerChoice, H-t, etemp, Etemp) == 0
+#                 for n in LayerNodes[LayerChoice]
+#                     push!(ECut[LayerChoice, H-t, n], Etemp[n]);
+#                 end
+#                 push!(eCut[LayerChoice, H-t], etemp);
+#             end
+#         end
+#     end
+# end
+
+# Function for the BackwardPass
+function BackwardPass_test(K, LayerChoice, iter)
+    " written by Taku"
     " K -- Refers to the number of Monte Carlo Samples"
     " LayerChoice -- Refers to the current Layer"
     " iter -- Refers to the current iteration"
-    for t = 1:H-1
-        for SampleChoice = 1:K
-            etemp = 0.0;
-            Etemp = Dict{Int64,Float64}(n => 0.0 for n in LayerNodes[LayerChoice]);
-            for OutcomeChoice = 1:NLattice[H+1-t]
+    for t = 0:H-2 # for loop of OptimalValue
+        TimeChoice = H - t;
+        for SampleChoice = 1:K  # for loop of Monte Carlo trials
+            # store the solutions of NLDS(t,k) for all k (k = OutcomeChoice)
+            NesLDS_tk = []
+
+            # for loop for NLDS(t,k) -> solve and store the solution to `NesLDS_tk`
+            for OutcomeChoice = 1:NLattice[TimeChoice]
                 # The NLDS is solved
-                NesLDS = NLDS(LayerChoice, SampleChoice, H-t+1, OutcomeChoice, iter);
-                # The E coefficients are calculated
-                # The e coeficients are calculated
-                for n in HeadNodes[LayerChoice]
-                    etemp = etemp + NesLDS.Pin_fix[n]*p_in_data[H-t+1,OutcomeChoice] ;
-                end
-                for n in LayerNodes[LayerChoice]
-                    etemp = etemp + NesLDS.Balance[n]*PNetDemand[n,H-t+1][OutcomeChoice] + NesLDS.StorageMax[n]*BatteryCapacity[n] + NesLDS.BatteryChargeMax[n]*BatteryChargeRate[n] + NesLDS.BatteryDischargeMax[n]*BatteryChargeRate[n];
-                    Etemp[n] = Etemp[n] - TransProb[LayerChoice,H-t][OutcomeChoice]*NesLDS.BatteryDynamics[n];
-                end
-                for n in LayerLines[LayerChoice]
-                    etemp = etemp + NesLDS.FlowMax[n]*SLimit[n] + 2*NesLDS.FlowMin[n]*SLimit[n] ;
-                end
-                for n in LeafNodes[LayerChoice], m in LeafChildren[LayerChoice,n]
-                    etemp = etemp + NesLDS.Pout_fix[[n, m]]*p_out_data[H-t+1,OutcomeChoice];
-                end
-                if LayerChoice == 1
-                    etemp = etemp + sum( NesLDS.GenerationMax[g]*PGenerationMax[g, H-t+1][OutcomeChoice] for g = 1:NGenerators ) - sum( NesLDS.GenerationMin[g]*PGenerationMin[g,H-t+1][OutcomeChoice] for g = 1:NGenerators )
-                end
-                if t > 1
-                    etemp = etemp + sum( NesLDS.Cuts[:].*eCut[LayerChoice, H+1-t][:]) ;
-                end
-                etemp = TransProb[LayerChoice,H-t][OutcomeChoice]*etemp;
+                println("   ****Backward Pass: solving layer ",LayerChoice,", Stage ", TimeChoice, ", Outcome ",OutcomeChoice, ", MC Sample ",SampleChoice, ", Iteration ",iter )
+                NesLDS = NLDS(LayerChoice, SampleChoice, TimeChoice, OutcomeChoice, iter);
+                println("\n")
+                push!(NesLDS_tk, NesLDS);
             end
-            # Here we check if the cut is useful
-            if UsefulCut(LayerChoice, H-t, etemp, Etemp) == 0
+            # end for loop for NLDS(t,k)
+
+            # for loop for compute the cuts of NLDS(t-1,j) for all j (j = OutcomeChoice_1)
+            for OutcomeChoice_1 = 1:NLattice[TimeChoice-1]
+                # compute Cut Coefficient: E
+                EE = Dict{Int64,Float64}(n => 0.0 for n in LayerNodes[LayerChoice]);
                 for n in LayerNodes[LayerChoice]
-                    push!(ECut[LayerChoice, H-t, n], Etemp[n]);
+                    EE[n] = sum(
+                        TransProb[LayerChoice,TimeChoice-1][OutcomeChoice_1,k]
+                        .*NesLDS_tk[k].BatteryDynamics[n].*(-1) for k = 1:NLattice[TimeChoice]
+                    )
+                end # end computing Cut Coefficient: E
+
+                # compute Cut right-hand side: e
+                ee = 0.0
+                ee = sum(TransProb[LayerChoice,TimeChoice-1][OutcomeChoice_1,k] * (
+                        sum(NesLDS_tk[k].BatteryDynamics[n] .* 0.0 for n in LayerNodes[LayerChoice])  # one can ignore b/c this term is always zero
+                        +sum(NesLDS_tk[k].Balance[n] .* PNetDemand[n,TimeChoice][k] for n in LayerNodes[LayerChoice])
+                        +sum(NesLDS_tk[k].FlowMax[i] .* SLimit[i] for i in LayerLines[LayerChoice])
+                        +sum(NesLDS_tk[k].FlowMin[i] .* (SLimit[i] - (-SLimit[i])) for i in LayerLines[LayerChoice])
+                        +sum(NesLDS_tk[k].StorageMax[n] .* BatteryCapacity[n] for n in LayerNodes[LayerChoice])
+                        +sum(NesLDS_tk[k].BatteryChargeMax[n] .* BatteryChargeRate[n] for n in LayerNodes[LayerChoice])
+                        +sum(NesLDS_tk[k].BatteryDischargeMax[n] .* BatteryChargeRate[n] for n in LayerNodes[LayerChoice]))
+                        for k = 1:NLattice[TimeChoice] )
+                if !isempty(HeadNodes[LayerChoice]) # CAUTION needs to be generalized for multi-layer (p_in_data)
+                    ee += sum(TransProb[LayerChoice,TimeChoice-1][OutcomeChoice_1,k] * (
+                        sum(NesLDS_tk[k].Pin_fix[n] .* p_in_data[TimeChoice,k] for n in HeadNodes[LayerChoice])
+                        +sum(NesLDS_tk[k].Pin_Flow_equality[n] .* 0.0 for n in HeadNodes[LayerChoice])
+                    )
+                    for k = 1:NLattice[TimeChoice] ) # one can ignore b/c this term is always zero
                 end
-                push!(eCut[LayerChoice, H-t], etemp);
-            end
-        end
-    end
+                if !isempty(LeafNodes[LayerChoice]) # CAUTION needs to be generalized for multi-layer (p_out_data)
+                    for n in LeafNodes[LayerChoice], m in LeafChildren[LayerChoice,n]
+                        ee += sum(TransProb[LayerChoice,TimeChoice-1][OutcomeChoice_1,k] * (
+                            sum(NesLDS_tk[k].Pout_fix[[n,m]] .* p_out_data[TimeChoice,k])
+                        )
+                        for k = 1:NLattice[TimeChoice])
+                    end
+                end
+                if LayerChoice == 1  # for the root node (with generators)
+                    ee += sum(TransProb[LayerChoice,TimeChoice-1][OutcomeChoice_1,k] * (
+                    sum(NesLDS_tk[k].GenerationMax[g] .* PGenerationMax[g,TimeChoice][k] for g = 1:NGenerators)
+                    +sum(NesLDS_tk[k].GenerationMin[g] .* PGenerationMin[g,TimeChoice][k] for g = 1:NGenerators)
+                    )
+                    for k = 1:NLattice[TimeChoice] )
+                end
+                if TimeChoice < H  # if there are cuts
+                    ee += sum(TransProb[LayerChoice,TimeChoice-1][OutcomeChoice_1,k] * (
+                        sum(NesLDS_tk[k].Cuts .* eCut_test[LayerChoice, TimeChoice][k])
+                    )
+                    for k = 1:NLattice[TimeChoice] )
+                end
+                # end computing Cut RHS: e
+
+                # check the cut is useful or not
+                # if the cut is useful we add it otherwise not
+                if isassigned(eCut_test[LayerChoice,TimeChoice-1], OutcomeChoice_1)  # if there already exist some cuts
+                    if UsefulCut_test(LayerChoice, TimeChoice-1, OutcomeChoice_1, ee, EE) # if the cut is useful -> add it
+                        for n in LayerNodes[LayerChoice]
+                            push!(ECut_test[n,TimeChoice-1][OutcomeChoice_1],EE[n])
+                        end
+                        push!(eCut_test[LayerChoice,TimeChoice-1][OutcomeChoice_1],ee)
+                    end
+                else  # if there was no cut -> simply add the cut (maybe at the first iteration)
+                    for n in LayerNodes[LayerChoice]
+                        ECut_test[n,TimeChoice-1][OutcomeChoice_1] = [EE[n]]
+                    end
+                    eCut_test[LayerChoice,TimeChoice-1][OutcomeChoice_1] = [ee]
+                end # end checking/adding the cut
+            end # end for loop for compute the cuts of NLDS(t-1,j) for all j
+        end # end for loop of Monte Carlo trials
+    end # end for loop of time = H ,..., 2
 end
