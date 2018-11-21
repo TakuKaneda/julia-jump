@@ -5,17 +5,17 @@ include("LoadDataSDDP.jl")
 
 ### TAKU add
 # define the cuts
-# eCut_test[l, t][k] has a vector of cut-RHS (`e^l_{t,k}` of NLDS of layer l at stage t, outcome k)
-# ECut_test[n, t][k] has a vector of cut-coefficients of node n (`E^l_{n,t,k}` of NLDS of layer l at stage t, outcome k)
+# eCut[l, t][k] has a vector of cut-RHS (`e^l_{t,k}` of NLDS of layer l at stage t, outcome k)
+# ECut[n, t][k] has a vector of cut-coefficients of node n (`E^l_{n,t,k}` of NLDS of layer l at stage t, outcome k)
 #   note that there are no cuts at stage H
-eCut_test = Array{Array}(NLayers,H-1)
-ECut_test = Array{Array}(NNodes,H-1)
+eCut = Array{Array}(NLayers,H-1)
+ECut = Array{Array}(NNodes,H-1)
 for t = 1:H-1
     for l = 1:NLayers
-        eCut_test[l,t] = Array{Any}(NLattice[t]) # number of lattice
+        eCut[l,t] = Array{Any}(NLattice[t]) # number of lattice
     end
     for n = 1:NNodes
-        ECut_test[n,t] = Array{Any}(NLattice[t]) # number of lattice
+        ECut[n,t] = Array{Any}(NLattice[t]) # number of lattice
     end
 end
 ### end TAKU add
@@ -82,35 +82,35 @@ end
 
 # Function that determines wether the obtained cut is repeated
 # 0 is not repeated, 1 yes
-function UsefulCut(LayerChoice, TimeChoice, etemp, Etemp)
-    i = 1;
-    boo = 0;
-    while boo == 0 && i <= length(eCut[LayerChoice, TimeChoice])
-        Difference = 0.0;
-        for n in LayerNodes[LayerChoice]
-            Difference = Difference + abs(ECut[LayerChoice, TimeChoice, n][i] - Etemp[n]);
-        end
-        if abs(eCut[LayerChoice, TimeChoice][i] - etemp) < 10e-6 &&  Difference < 10e-6
-            boo = 1;
-        else
-            i = i+1;
-        end
-    end
-    return boo
-end
+# function UsefulCut(LayerChoice, TimeChoice, etemp, Etemp)
+#     i = 1;
+#     boo = 0;
+#     while boo == 0 && i <= length(eCut[LayerChoice, TimeChoice])
+#         Difference = 0.0;
+#         for n in LayerNodes[LayerChoice]
+#             Difference = Difference + abs(ECut[LayerChoice, TimeChoice, n][i] - Etemp[n]);
+#         end
+#         if abs(eCut[LayerChoice, TimeChoice][i] - etemp) < 10e-6 &&  Difference < 10e-6
+#             boo = 1;
+#         else
+#             i = i+1;
+#         end
+#     end
+#     return boo
+# end
 
 ### TAKU add
 # Function that determines wether the obtained cut is repeated
-function UsefulCut_test(LayerChoice, TimeChoice, OutcomeChoice, etemp, Etemp)
+function UsefulCut(LayerChoice, TimeChoice, OutcomeChoice, etemp, Etemp)
     "Function that determines wether the obtained cut is repeated
     return  `true` : the cut is useful
             `false`: otherwise
     "
     i = 1;
     boo = true;
-    while boo == true && i <= length(eCut_test[LayerChoice, TimeChoice][OutcomeChoice])
-        Difference = sum(abs(ECut_test[n, TimeChoice][OutcomeChoice][i] - Etemp[n]) for n in LayerNodes[LayerChoice]) # compare E
-        Difference += abs(eCut_test[LayerChoice, TimeChoice][OutcomeChoice][i] - etemp) # compare e
+    while boo == true && i <= length(eCut[LayerChoice, TimeChoice][OutcomeChoice])
+        Difference = sum(abs(ECut[n, TimeChoice][OutcomeChoice][i] - Etemp[n]) for n in LayerNodes[LayerChoice]) # compare E
+        Difference += abs(eCut[LayerChoice, TimeChoice][OutcomeChoice][i] - etemp) # compare e
         if Difference < 10e-6
             boo = false; # the cut is repeated i.e. unuseful
         else
@@ -228,9 +228,9 @@ function NLDS(LayerChoice, SampleChoice, TimeChoice, OutcomeChoice, iter)
     if TimeChoice == H # no cuts
         @constraint(model, theta == 0.0 )
     else
-        if isassigned(eCut_test[LayerChoice, TimeChoice], OutcomeChoice) # if there exist cuts
-            @constraint(model, Cuts[i = 1:length(eCut_test[LayerChoice, TimeChoice][OutcomeChoice])],
-            theta  >= eCut_test[LayerChoice, TimeChoice][OutcomeChoice][i] - sum(ECut_test[n,TimeChoice][OutcomeChoice][i] .* storage[n] for n in LayerNodes[LayerChoice]) );
+        if isassigned(eCut[LayerChoice, TimeChoice], OutcomeChoice) # if there exist cuts
+            @constraint(model, Cuts[i = 1:length(eCut[LayerChoice, TimeChoice][OutcomeChoice])],
+            theta  >= eCut[LayerChoice, TimeChoice][OutcomeChoice][i] - sum(ECut[n,TimeChoice][OutcomeChoice][i] .* storage[n] for n in LayerNodes[LayerChoice]) );
         end
     end
     ### end TAKU add
@@ -256,7 +256,7 @@ function NLDS(LayerChoice, SampleChoice, TimeChoice, OutcomeChoice, iter)
         BalanceMultipliers[1] = getdual(Balance_rootnode);
         GenerationMaxMultipliers = CreateDictionaryV( push!([], getdual(GenerationMax)) );
         GenerationMinMultipliers = CreateDictionaryV( push!([], getdual(GenerationMin)) );
-        if TimeChoice == H || !isassigned(eCut_test[LayerChoice, TimeChoice], OutcomeChoice) # TAKU modifided: at the last stage or there is no cut
+        if TimeChoice == H || !isassigned(eCut[LayerChoice, TimeChoice], OutcomeChoice) # TAKU modifided: at the last stage or there is no cut
             return Solutions(  CreateDictionaryV(push!([], getvalue(pflow))), CreateDictionaryV(push!([],getvalue(storage))),
             CreateDictionaryV(push!([],getvalue(batterycharge))), CreateDictionaryV(push!([],getvalue(batterydischarge))),
             CreateDictionaryV(push!([],getvalue(loadshedding))), CreateDictionaryV( push!([],getvalue(productionshedding))),
@@ -274,7 +274,7 @@ function NLDS(LayerChoice, SampleChoice, TimeChoice, OutcomeChoice, iter)
             GenerationMinMultipliers, getobjectivevalue(model) )
         end
     else
-        if TimeChoice == H || !isassigned(eCut_test[LayerChoice, TimeChoice], OutcomeChoice) #  TAKU modifided: at the last stage or there is no cut
+        if TimeChoice == H || !isassigned(eCut[LayerChoice, TimeChoice], OutcomeChoice) #  TAKU modifided: at the last stage or there is no cut
             return Solutions(CreateDictionaryV(push!([], getvalue(pflow))), CreateDictionaryV(push!([],getvalue(storage))),
             CreateDictionaryV(push!([],getvalue(batterycharge))), CreateDictionaryV(push!([],getvalue(batterydischarge))),
             CreateDictionaryV(push!([],getvalue(loadshedding))), CreateDictionaryV( push!([],getvalue(productionshedding))),
@@ -305,7 +305,7 @@ function ForwardPass(K, LayerChoice, iter)
     # end TAKU add
 
     # Solve the First Stage
-    println("   ====Forward Pass: solving layer ",LayerChoice,", Stage ", 1, ", Outcome ",1, ", Iteration ", iter)
+    println("   ====Forward Pass: solving Layer ",LayerChoice,", Stage ", 1, ", Outcome ",1, ", Iteration ", iter)
     FirstNLDS = NLDS(LayerChoice, 1, 1, 1, iter);
     println("\n")
     # Store The Lower Bound
@@ -333,7 +333,7 @@ function ForwardPass(K, LayerChoice, iter)
             # TAKU add
             # choose the current scenario
             ScenarioChoice = SampleScenario[LayerChoice,TimeChoice,SampleChoice]
-            println("   ====Forward Pass: solving layer ",LayerChoice,", Stage ", TimeChoice, ", Outcome ",ScenarioChoice, ", MC Sample ",SampleChoice, ", Iteration ",iter )
+            println("   ====Forward Pass: solving Layer ",LayerChoice,", Stage ", TimeChoice, ", Outcome ",ScenarioChoice, ", MC Sample ",SampleChoice, ", Iteration ",iter )
             # NestedLDS = NLDS(LayerChoice, SampleChoice, TimeChoice, path[TimeChoice, SampleChoice, iter], iter);
             NestedLDS = NLDS(LayerChoice, SampleChoice, TimeChoice, ScenarioChoice, iter);
             println("\n")
@@ -405,7 +405,7 @@ end
 # end
 
 # Function for the BackwardPass
-function BackwardPass_test(K, LayerChoice, iter)
+function BackwardPass(K, LayerChoice, iter)
     " written by Taku"
     " K -- Refers to the number of Monte Carlo Samples"
     " LayerChoice -- Refers to the current Layer"
@@ -419,7 +419,7 @@ function BackwardPass_test(K, LayerChoice, iter)
             # for loop for NLDS(t,k) -> solve and store the solution to `NesLDS_tk`
             for OutcomeChoice = 1:NLattice[TimeChoice]
                 # The NLDS is solved
-                println("   ****Backward Pass: solving layer ",LayerChoice,", Stage ", TimeChoice, ", Outcome ",OutcomeChoice, ", MC Sample ",SampleChoice, ", Iteration ",iter )
+                println("   ****Backward Pass: solving Layer ",LayerChoice,", Stage ", TimeChoice, ", Outcome ",OutcomeChoice, ", MC Sample ",SampleChoice, ", Iteration ",iter )
                 NesLDS = NLDS(LayerChoice, SampleChoice, TimeChoice, OutcomeChoice, iter);
                 println("\n")
                 push!(NesLDS_tk, NesLDS);
@@ -472,7 +472,7 @@ function BackwardPass_test(K, LayerChoice, iter)
                 end
                 if TimeChoice < H  # if there are cuts
                     ee += sum(TransProb[LayerChoice,TimeChoice-1][OutcomeChoice_1,k] * (
-                        sum(NesLDS_tk[k].Cuts .* eCut_test[LayerChoice, TimeChoice][k])
+                        sum(NesLDS_tk[k].Cuts .* eCut[LayerChoice, TimeChoice][k])
                     )
                     for k = 1:NLattice[TimeChoice] )
                 end
@@ -480,18 +480,18 @@ function BackwardPass_test(K, LayerChoice, iter)
 
                 # check the cut is useful or not
                 # if the cut is useful we add it otherwise not
-                if isassigned(eCut_test[LayerChoice,TimeChoice-1], OutcomeChoice_1)  # if there already exist some cuts
-                    if UsefulCut_test(LayerChoice, TimeChoice-1, OutcomeChoice_1, ee, EE) # if the cut is useful -> add it
+                if isassigned(eCut[LayerChoice,TimeChoice-1], OutcomeChoice_1)  # if there already exist some cuts
+                    if UsefulCut(LayerChoice, TimeChoice-1, OutcomeChoice_1, ee, EE) # if the cut is useful -> add it
                         for n in LayerNodes[LayerChoice]
-                            push!(ECut_test[n,TimeChoice-1][OutcomeChoice_1],EE[n])
+                            push!(ECut[n,TimeChoice-1][OutcomeChoice_1],EE[n])
                         end
-                        push!(eCut_test[LayerChoice,TimeChoice-1][OutcomeChoice_1],ee)
+                        push!(eCut[LayerChoice,TimeChoice-1][OutcomeChoice_1],ee)
                     end
                 else  # if there was no cut -> simply add the cut (maybe at the first iteration)
                     for n in LayerNodes[LayerChoice]
-                        ECut_test[n,TimeChoice-1][OutcomeChoice_1] = [EE[n]]
+                        ECut[n,TimeChoice-1][OutcomeChoice_1] = [EE[n]]
                     end
-                    eCut_test[LayerChoice,TimeChoice-1][OutcomeChoice_1] = [ee]
+                    eCut[LayerChoice,TimeChoice-1][OutcomeChoice_1] = [ee]
                 end # end checking/adding the cut
             end # end for loop for compute the cuts of NLDS(t-1,j) for all j
         end # end for loop of Monte Carlo trials
