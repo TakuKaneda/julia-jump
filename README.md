@@ -20,3 +20,9 @@
 ### `data/`: two-layer or multi-layer problem of my master thesis
 * `*.json`: contains the corresponding stochastic parameters
 * `*.csv`: contains (deterministic) problem parameters
+
+### The stochastic dual dynamic programming (SDDP)
+One can implement the SDDP with running `RunSDDP.jl`.
+* `RunSDDP.jl`: runs the SDDP
+* `SDDP.jl`: functions used for SDDP implementation
+* `LoadDataSDDP.jl`: loads data for SDDP implementation
