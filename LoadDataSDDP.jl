@@ -50,3 +50,24 @@ NLines = nrow(lines_df);
 NNodes = nrow(nodes_df);
 NGenerators = nrow(generators_df);
 NLattice = [size(PNetDemand[1,t],1) for t = 1:H];
+
+# Create sets
+UsualNodeSet = [];
+HeadNodeSet = [];
+LeafNodeSet = [];
+HeadLeafNodeSet = [];
+ChildrenNodesMinusLeafChildren = Dict{Array{Int64,1},Int64}();
+for LayerChoice = 1:NLayers
+    push!(UsualNodeSet, setdiff(LayerNodes[LayerChoice], union( [1], HeadNodes[LayerChoice], LeafNodes[LayerChoice] )) );
+    push!(HeadNodeSet, setdiff(HeadNodes[LayerChoice], LeafNodes[LayerChoice]) );
+    push!(LeafNodeSet, setdiff(LeafNodes[LayerChoice], HeadNodes[LayerChoice]) );
+    push!(HeadLeafNodeSet, intersect(LeafNodes[LayerChoice], HeadNodes[LayerChoice]) );
+    
+    for n in LeafNodeSet[LayerChoice]
+        for m in Children[n]
+            if issubset([m+1], LeafChildren[LayerChoice,n]) == false
+                 ChildrenNodesMinusLeafChildren[[LayerChoice,n]] = m;
+            end
+        end
+    end
+end
