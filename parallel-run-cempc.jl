@@ -1,11 +1,10 @@
-"""
-Implement ce-mpc with JuMP in parallel
-"""
+# Implement ce-mpc with JuMP in parallel
+
 ## number of samples
 NSamples = 4;
 
 ## number of processors
-NProcessors = 2;
+NProcessors = 4;
 addprocs(NProcessors)  # add processors
 
 ## load global modules, problem data and MPC function

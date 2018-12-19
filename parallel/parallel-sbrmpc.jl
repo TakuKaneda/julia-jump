@@ -3,7 +3,7 @@ Define the function of sbr-mpc with JuMP for parallel computing
 """
 
 ## define solver
-solver = GurobiSolver(LogToConsole=0, LogFile="log/parallel-sbrmpc.log")
+solver = GurobiSolver(LogToConsole=0#=, LogFile="log/parallel-sbrmpc.log"=#)
 
 function ScenarioGenerator(TimeChoice, RealPath)
     "

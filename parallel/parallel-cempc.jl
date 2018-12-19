@@ -3,7 +3,7 @@ Define the function of ce-mpc with JuMP for parallel computing
 """
 
 ## define solver
-solver = GurobiSolver(LogToConsole=0, LogFile="log/parallel-cempc.log")
+solver = GurobiSolver(LogToConsole=0#=, LogFile="log/parallel-cempc.log"=#)
 
 function ComputeExpectedParameters(TimeChoice,ScenarioChoice)
     "

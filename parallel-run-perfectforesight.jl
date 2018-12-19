@@ -1,11 +1,10 @@
-"""
-Implement perfect foresight with JuMP in parallel
-"""
+# Implement perfect foresight with JuMP in parallel
+
 ## number of samples
 NSamples = 10;
 
 ## number of processors
-NProcessors = 2;
+NProcessors = 4;
 addprocs(NProcessors)  # add processors
 
 ## load global modules, problem data and MPC function

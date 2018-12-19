@@ -3,7 +3,7 @@ Define the function of perfect foresight with JuMP for parallel computing
 """
 
 ## define solver
-solver = GurobiSolver(LogToConsole=0, LogFile="log/parallel-perfectforesight.log")
+solver = GurobiSolver(LogToConsole=0#=, LogFile="log/parallel-perfectforesight.log"=#)
 
 function PerfectForesight(RealPath, solutions, idx=NaN)
     "
