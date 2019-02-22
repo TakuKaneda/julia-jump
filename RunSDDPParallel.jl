@@ -1,5 +1,7 @@
 # Here we add the processors
 addprocs(3)
+# Select the type of problem
+@everywhere problem_size = "multi" # "two" or "multi"
 include("SDDPParallel.jl")
 
 # Number of Samples

@@ -210,3 +210,41 @@ function ReadSamplePath(path,H=24)
     end
     return Samples
 end
+
+function ConvertPinPoutData2Array(path_to_p_in,path_to_p_out,NLayers,NNodes,H=24)
+    "
+    Read the interface flow data
+    Output: - p_in_data[l,t][k]: Array{Float64,1}  p_in data at the head node of layer l
+                                at stage t and outcome k
+            - p_out_data[n,m][t][k]: Array{Float64,1} p_out data from a leaf node n (of layer Node2Layer[n])
+                                to the head node m (one of the children) at stage t, outcome k
+    "
+    # for p_in
+    path = String(read(path_to_p_in)) # read .json
+    p_in_raw = JSON.parse(path) # raw data
+
+    p_in_data = Array{Array}(NLayers,H) # Array to store data
+    [p_in_data[1,t] = Float64[] for t = 1:H]
+    for k in keys(p_in_raw)
+        for t = 1:H
+            p_in_data[parse(Int64,k),t] = convert(Array{Float64,1},p_in_raw[k][string(t)])
+        end
+    end
+
+    # for p_out[n,m][t][k]
+    path = String(read(path_to_p_out)) # read .json
+    p_out_raw = JSON.parse(path) # raw data
+
+    p_out_data = Array{Array}(NNodes,NNodes) # Array to store data
+    for k1 in keys(p_out_raw)
+        n = parse(Int64,k1)
+        for k2 in keys(p_out_raw[k1])
+            m = parse(Int64,k2)
+            p_out_data[n,m] = Array{Any,1}(H)
+            for t = 1:H
+                p_out_data[n,m][t] = convert(Array{Float64,1},p_out_raw[k1][k2][string(t)])
+            end
+        end
+    end
+    return p_in_data, p_out_data
+end

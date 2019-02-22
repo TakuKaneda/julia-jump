@@ -1,3 +1,6 @@
+# Select the type of problem
+problem_size = "multi" # "two" or "multi"
+
 include("SDDP.jl")
 
 # Number of Samples

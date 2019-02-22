@@ -157,10 +157,10 @@ end
     + pflow[n-1] - sum(p_out[n,j] for j in LeafChildren[LayerChoice,n]) ==  PNetDemand[n,TimeChoice][OutcomeChoice] ) );
 
     # p_in constraint
-    @constraint(model, Pin_fix[n in HeadNodes[LayerChoice]], p_in[n] == p_in_data[TimeChoice,OutcomeChoice] );
+    @constraint(model, Pin_fix[n in HeadNodes[LayerChoice]], p_in[n] == p_in_data[LayerChoice,TimeChoice][OutcomeChoice]#=p_in_data[TimeChoice,OutcomeChoice] =# );
 
     # p_out constraint
-    @constraint(model, Pout_fix[n in LeafNodes[LayerChoice], m in LeafChildren[LayerChoice,n]], p_out[n,m] == p_out_data[TimeChoice,OutcomeChoice] );
+    @constraint(model, Pout_fix[n in LeafNodes[LayerChoice], m in LeafChildren[LayerChoice,n]], p_out[n,m] == p_out_data[n,m][TimeChoice][OutcomeChoice]#=p_out_data[TimeChoice,OutcomeChoice]=# );
 
     # p_in & pflow equality constraint
     @constraint(model, Pin_Flow_equality[n in HeadNodes[LayerChoice]], p_in[n] - pflow[n-1] == 0.0);
@@ -358,13 +358,13 @@ end
                 for k = 1:NLattice[TimeChoice] )
         if !isempty(HeadNodes[LayerChoice]) # CAUTION needs to be generalized for multi-layer (p_in_data)
             ee += sum(TransProb[LayerChoice,TimeChoice-1][OutcomeChoice_1,k] *
-                sum(NesLDS_tk[k].Pin_fix[n] .* p_in_data[TimeChoice,k] for n in HeadNodes[LayerChoice])
+                sum(NesLDS_tk[k].Pin_fix[n] .* p_in_data[LayerChoice,TimeChoice][k] #=p_in_data[TimeChoice,k]=# for n in HeadNodes[LayerChoice])
                 for k = 1:NLattice[TimeChoice] )
         end
         if !isempty(LeafNodes[LayerChoice]) # CAUTION needs to be generalized for multi-layer (p_out_data)
             for n in LeafNodes[LayerChoice], m in LeafChildren[LayerChoice,n]
                 ee += sum(TransProb[LayerChoice,TimeChoice-1][OutcomeChoice_1,k] * (
-                    sum(NesLDS_tk[k].Pout_fix[[n,m]] .* p_out_data[TimeChoice,k])
+                    sum(NesLDS_tk[k].Pout_fix[[n,m]] .* p_out_data[n,m][TimeChoice][k] #=p_out_data[TimeChoice,k]=#)
                 )
                 for k = 1:NLattice[TimeChoice])
             end
@@ -402,7 +402,7 @@ function BackwardPass(K, LayerChoice, iter)
         ECutTempStorage= SharedArray{Float64}(K, NLattice[2], length(LayerNodes[LayerChoice]));
         eCutTempStorage = SharedArray{Float64}(K, NLattice[2]);
 
-        # Here each processor solves a trial solution 
+        # Here each processor solves a trial solution
         pmap(BackwardTrial, [TimeChoice for i = 1:K], 1:K, [iter for i = 1:K],
         [LayerChoice for i = 1:K], [storageTrials for i = 1:K], [ECut for i =1:K], [eCut for i =1:K], [NumCuts for i = 1:K],
         [ECutTempStorage for i = 1:K], [eCutTempStorage for i = 1:K] );

@@ -2,24 +2,27 @@ using DataFrames, CSV
 include("src/source.jl")
 
 ## Read CSV data
-lines_df = CSV.read("data/twolayer-lines.csv")
-nodes_df = Read_nodes_csv("data/twolayer-nodes.csv")  # see src/source.jl
-generators_df = CSV.read("data/twolayer-generators.csv")
+lines_df = CSV.read("data/" * problem_size * "layer-lines.csv")
+nodes_df = Read_nodes_csv("data/" * problem_size * "layer-nodes.csv")  # see src/source.jl
+generators_df = CSV.read("data/" * problem_size * "layer-generators.csv")
 
 ## Read JSON: Network data
-LayerNodes, LayerLines = ConvertLayerData2Array("data/two_LayerNodes.json", "data/two_LayerLines.json")
-HeadNodes, LeafNodes = ConvertHeadLeafNodes2Array("data/two_HeadNodes.json", "data/two_LeafNodes.json")
-LeafChildren = ConvertLeafChildren2Array("data/two_LeafChildren.json", LeafNodes,size(nodes_df,1))
+LayerNodes, LayerLines = ConvertLayerData2Array("data/" * problem_size * "_LayerNodes.json", "data/" * problem_size * "_LayerLines.json")
+HeadNodes, LeafNodes = ConvertHeadLeafNodes2Array("data/" * problem_size * "_HeadNodes.json", "data/" * problem_size * "_LeafNodes.json")
+LeafChildren = ConvertLeafChildren2Array("data/" * problem_size * "_LeafChildren.json", LeafNodes,size(nodes_df,1))
 
 ## Read JSON: Stochastic Params
-PNetDemand = ConvertPNetDemand2Array("data/two_ND.json")
-TransProb = ConvertTransProb2Array("data/two_TP.json")
-PGenerationMax = ConvertPGenerationCapacity2Array("data/two_PMax.json")
-PGenerationMin = ConvertPGenerationCapacity2Array("data/two_PMin.json")
+PNetDemand = ConvertPNetDemand2Array("data/" * problem_size * "_ND.json")
+TransProb = ConvertTransProb2Array("data/" * problem_size * "_TP.json")
+PGenerationMax = ConvertPGenerationCapacity2Array("data/" * problem_size * "_PMax.json")
+PGenerationMin = ConvertPGenerationCapacity2Array("data/" * problem_size * "_PMin.json")
 
 ## Read txt: Stochastic Params
-p_in_data = readdlm("SDDP_data/p_in_lattice.txt")
-p_out_data = readdlm("SDDP_data/p_out_lattice.txt")
+# p_in_data = readdlm("SDDP_data/p_in_lattice.txt")
+# p_out_data = readdlm("SDDP_data/p_out_lattice.txt")
+# Taku propose
+p_in_data, p_out_data = ConvertPinPoutData2Array("data/" * problem_size * "_p_in.json","data/" * problem_size * "_p_out.json",size(TransProb,1),size(nodes_df,1))
+
 ## Problem Parameters
 # generators
 
@@ -56,18 +59,21 @@ UsualNodeSet = [];
 HeadNodeSet = [];
 LeafNodeSet = [];
 HeadLeafNodeSet = [];
-ChildrenNodesMinusLeafChildren = Dict{Array{Int64,1},Int64}();
+ChildrenNodesMinusLeafChildren = Dict{Array{Int64,1},Array{Int64,1}}();
 for LayerChoice = 1:NLayers
     push!(UsualNodeSet, setdiff(LayerNodes[LayerChoice], union( [1], HeadNodes[LayerChoice], LeafNodes[LayerChoice] )) );
     push!(HeadNodeSet, setdiff(HeadNodes[LayerChoice], LeafNodes[LayerChoice]) );
     push!(LeafNodeSet, setdiff(LeafNodes[LayerChoice], HeadNodes[LayerChoice]) );
     push!(HeadLeafNodeSet, intersect(LeafNodes[LayerChoice], HeadNodes[LayerChoice]) );
-    
+
     for n in LeafNodeSet[LayerChoice]
+        CNSet = Int64[];  # define an empty set for ChildrenNodesMinusLeafChildren[[LayerChoice,n]]
         for m in Children[n]
             if issubset([m+1], LeafChildren[LayerChoice,n]) == false
-                 ChildrenNodesMinusLeafChildren[[LayerChoice,n]] = m;
+                 # ChildrenNodesMinusLeafChildren[[LayerChoice,n]] = m;
+                 CNSet = push!(CNSet,m); # add a node to the current set
             end
         end
+        ChildrenNodesMinusLeafChildren[[LayerChoice,n]] = CNSet
     end
 end
