@@ -1,40 +1,40 @@
 # Select the type of problem
-problem_size = "multi" # "two" or "multi"
+problem_size = "two" # "two" or "multi"
 
 include("SDDP.jl")
 
 # Number of Samples
-const K = 5;
+const K = 1;
 
 # Number of Iterations
-const Iterations = 3;
+const Iterations = 1;
 
 # Definition of the Arrays to store the results
 # May not be the best way to store things
-pflowTrials = Array{Float64}(NLines, H, K, Iterations);
-storageTrials = Array{Float64}(NNodes, H, K, Iterations);
-batterychargeTrials = Array{Float64}(NNodes, H, K, Iterations);
-batterydischargeTrials = Array{Float64}(NNodes, H, K, Iterations);
-loadsheddingTrials = Array{Float64}(NNodes, H, K, Iterations);
-productionsheddingTrials = Array{Float64}(NNodes, H, K, Iterations);
-pgenerationTrials = Array{Float64}(NGenerators, H, K, Iterations);
+pflowTrials = Array{Float64}(undef, NLines, H, K, Iterations);
+storageTrials = Array{Float64}(undef, NNodes, H, K, Iterations);
+batterychargeTrials = Array{Float64}(undef, NNodes, H, K, Iterations);
+batterydischargeTrials = Array{Float64}(undef, NNodes, H, K, Iterations);
+loadsheddingTrials = Array{Float64}(undef, NNodes, H, K, Iterations);
+productionsheddingTrials = Array{Float64}(undef, NNodes, H, K, Iterations);
+pgenerationTrials = Array{Float64}(undef, NGenerators, H, K, Iterations);
 
 # Here we define the arrays to store the cuts
 # ECut[:, n, k, t] is a vector of cut-coefficients of node n (`E^l_{n,t,k}` of NLDS of node n at stage t, outcome k)
 # eCut[:, k, t, l] is a vector of cut-RHS (`e^l_{t,k}` of NLDS of layer l at stage t, outcome k)
 # Note that there are no cuts at stage H
-ECut = Array{Float64}(Iterations*K, NNodes, NLattice[2], H-1); # Note: Needs to be generalaized
-eCut = Array{Float64}(Iterations*K, NLattice[2], H-1, NLayers); # Note: Needs to be generalaized
+ECut = Array{Float64}(undef, Iterations*K, NNodes, NLattice[2], H-1); # Note: Needs to be generalaized
+eCut = Array{Float64}(undef, Iterations*K, NLattice[2], H-1, NLayers); # Note: Needs to be generalaized
 
 # NumCuts[t, l, k] is the number of cuts of layer l at stage t, outcome k
- NumCuts = Array{Int64}(H-1, NLayers, NLattice[2]);
+ NumCuts = Array{Int64}(undef, H-1, NLayers, NLattice[2]);
 
  # We initalize the number of cuts to 0
 for i =1:length(NumCuts)
     NumCuts[i] = 0
 end
 
-LowerBound = Array{Float64}(NLayers, Iterations) ;
+LowerBound = Array{Float64}(undef, NLayers, Iterations) ;
 SampleCost = zeros(NLayers, K, Iterations);
 MeanCost =  zeros(NLayers, Iterations) ;
 MeanCostStd = zeros(NLayers, Iterations); # std of mean cost
@@ -44,13 +44,13 @@ SDDPTime = zeros(NLayers, 2, Iterations);  # store Forward/BackwardPass time
 
 @time for LayerChoice = 1:NLayers
     for iter = 1:Iterations
-        tic()
+        start = time()
         ForwardPass(K, LayerChoice, iter)
-        SDDPTime[LayerChoice, 1, iter] = toc()
+        SDDPTime[LayerChoice, 1, iter] = time()-start
         # BackwardPass(K, LayerChoice, i)
-        tic()
+        start = time()
         BackwardPass(K, LayerChoice, iter)
-        SDDPTime[LayerChoice, 2, iter] = toc()
+        SDDPTime[LayerChoice, 2, iter] = time()-start
     end
 end
 
@@ -72,7 +72,7 @@ end
 #plotting the convergence
 using Plots
 pyplot()
-plts = Array{Any}(NLayers)
+plts = Array{Any}(undef, NLayers)
 for l = 1:NLayers
     plts[l] = plot(LowerBound[l,:], title = ("Layer "*string(l)),xaxis = "Iteration",yaxis="Cost (\$)",linecolor = :blue, label="Lower Bound")
     plts[l] = plot!(MeanCost[l,:], linecolor = :red, label="Mean Cost")

@@ -17,9 +17,14 @@ function Read_nodes_csv(path_to_csv)
     s = []
     for i = 1:nrow(nodes_df)
         if typeof(nodes_df[i,:Children]) == Missing
-            push!(s,[])
+            push!(s,Int64[])
         else
-            push!(s,map(parse,split(nodes_df[i,:Children])))
+            pieces = split(nodes_df[i,:Children]);
+            t = Int64[]
+            map(pieces) do piece
+                t = push!(t, parse(Int64, piece))
+            end
+            push!(s,t);
         end
     end
     nodes_df[:Children] = s  # assign
@@ -37,8 +42,8 @@ function ConvertLayerData2Array(path_to_json_LNodes, path_to_json__LLines)
     lnjson = JSON.parse(lnodes)
     lljson = JSON.parse(llines)
 
-    LayerNodes = Array{Array}(length(lnjson))
-    LayerLines = Array{Array}(length(lljson))
+    LayerNodes = Array{Array}(undef,length(lnjson))
+    LayerLines = Array{Array}(undef,length(lljson))
     for l=1:length(lnjson)
         LayerNodes[l] = convert(Array{Int64,1},lnjson[string(l)])
         LayerLines[l] = convert(Array{Int64,1},lljson[string(l)])
@@ -60,8 +65,8 @@ function ConvertHeadLeafNodes2Array(path_to_json_HNodes,path_to_json_LNodes)
     lnodes_j = JSON.parse(lnodes)
     # lchild_j = JSON.parse(lchildren)
 
-    HeadNodes = Array{Array}(length(hnodes_j))
-    LeafNodes = Array{Array}(length(lnodes_j))
+    HeadNodes = Array{Array}(undef,length(hnodes_j))
+    LeafNodes = Array{Array}(undef,length(lnodes_j))
     for l=1:length(hnodes_j)
         HeadNodes[l] = convert(Array{Int64,1},hnodes_j[string(l)])
         LeafNodes[l] = convert(Array{Int64,1},lnodes_j[string(l)])
@@ -77,7 +82,7 @@ function ConvertLeafChildren2Array(path_to_json, LeafNodes, NNodes)
     lchildren = String(read(path_to_json))
     lchild_j = JSON.parse(lchildren)
     NLayers = size(LeafNodes,1)
-    LeafChildren = Array{Array}(NLayers,NNodes)
+    LeafChildren = Array{Array}(undef,NLayers,NNodes)
     for l=1:NLayers
         if haskey(lchild_j, string(l))
             dic = lchild_j[string(l)]
@@ -112,7 +117,7 @@ function ConvertPNetDemand2Array(path_to_json)
     ndjson = JSON.parse(ndstr)  # convert to Array{Any}
 
     # convert to Float64
-    PNetDemand = Array{Array}(length(ndjson),length(ndjson["1"]))
+    PNetDemand = Array{Array}(undef,length(ndjson),length(ndjson["1"]))
     for n=1:length(ndjson)
         for t=1:length(ndjson["1"])
             PNetDemand[n,t] = convert(Array{Float64,1},ndjson[string(n-1)][string(t)])
@@ -132,7 +137,7 @@ function ConvertPGenerationCapacity2Array(path_to_json)
     capstr = String(read(path_to_json)) # read .json file as String
     json = JSON.parse(capstr);  # convert to Array{Any}
     # convert to Float64
-    PGenerationCap = Array{Array}(length(json),length(json["1"]))
+    PGenerationCap = Array{Array}(undef,length(json),length(json["1"]))
     for g=1:length(json)
         for t=1:length(json["1"])
             PGenerationCap[g,t] = convert(Array{Float64,1},json[string(g)][string(t)])
@@ -154,14 +159,14 @@ function ConvertTransProb2Array(path_to_json)
     tpjson = JSON.parse(tpstr)  # convert to Array{Any}
 
     # convert to Float64
-    TransProb = Array{Array}(length(tpjson),length(tpjson["1"]))
+    TransProb = Array{Array}(undef,length(tpjson),length(tpjson["1"]))
     for l=1:length(tpjson)
         for t=1:length(tpjson["1"])
             for k=1:length(tpjson[string(l)][string(t+1)])
                 if k == 1
-                    TransProb[l,t] = convert(Array{Float64,1},tpjson[string(l)][string(t+1)][k]).'
+                    TransProb[l,t] = convert(Array{Float64,1},tpjson[string(l)][string(t+1)][k])'
                 else
-                    TransProb[l,t] = vcat(TransProb[l,t],convert(Array{Float64,1},tpjson[string(l)][string(t+1)][k]).')
+                    TransProb[l,t] = vcat(TransProb[l,t],convert(Array{Float64,1},tpjson[string(l)][string(t+1)][k])')
                 end
             end
         end
@@ -169,7 +174,32 @@ function ConvertTransProb2Array(path_to_json)
     return TransProb
 end
 
+function ConvertGeneralTransProb2Array(path_to_csv)
+    "
+    convert a SINGLE TransProb data into Array
+    TransProb[t] = Array{Float64,2}:    Transition probability matrix from
+                                        outcome k of stage t to outcome j of
+                                        stage t+1
+      e.g. TransProb[2][3,4]: TransProb from outcome 3 of stage 2 to outcome 4 of stage 3
+    "
+    tpstr = String(read(path_to_json)); # read .json
+    tpjson = JSON.parse(tpstr)  ;
 
+    TransProb = Array{Array}(undef,length(tpjson))
+    # first stage: vector
+    TransProb[1] = convert(Array{Float64,1},tpjson[string(2)])'
+    # from stage 2: matrix
+    for t=2:length(tpjson)
+        for k=1:length(tpjson[string(t+1)])
+            if k == 1
+                TransProb[t] = convert(Array{Float64,1},tpjson[string(t+1)][k])'
+            else
+                TransProb[t] = vcat(TransProb[t],convert(Array{Float64,1},tpjson[string(t+1)][k])')
+            end
+        end
+    end
+    return TransProb
+end
 function SamplePath(TransProb, NSamples=1)
     "
     Generate sample paths using TransProb.
@@ -223,7 +253,7 @@ function ConvertPinPoutData2Array(path_to_p_in,path_to_p_out,NLayers,NNodes,H=24
     path = String(read(path_to_p_in)) # read .json
     p_in_raw = JSON.parse(path) # raw data
 
-    p_in_data = Array{Array}(NLayers,H) # Array to store data
+    p_in_data = Array{Array}(undef,NLayers,H) # Array to store data
     [p_in_data[1,t] = Float64[] for t = 1:H]
     for k in keys(p_in_raw)
         for t = 1:H
@@ -235,12 +265,12 @@ function ConvertPinPoutData2Array(path_to_p_in,path_to_p_out,NLayers,NNodes,H=24
     path = String(read(path_to_p_out)) # read .json
     p_out_raw = JSON.parse(path) # raw data
 
-    p_out_data = Array{Array}(NNodes,NNodes) # Array to store data
+    p_out_data = Array{Array}(undef,NNodes,NNodes) # Array to store data
     for k1 in keys(p_out_raw)
         n = parse(Int64,k1)
         for k2 in keys(p_out_raw[k1])
             m = parse(Int64,k2)
-            p_out_data[n,m] = Array{Any,1}(H)
+            p_out_data[n,m] = Array{Any,1}(undef,H)
             for t = 1:H
                 p_out_data[n,m][t] = convert(Array{Float64,1},p_out_raw[k1][k2][string(t)])
             end
