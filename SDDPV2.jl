@@ -1,27 +1,27 @@
-using JuMP, Gurobi
+using JuMP, Gurobi,  Clp, GLPK, Ipopt, Statistics
 
 # Here we load the SDDP data
 include("LoadDataSDDP.jl")
 
 # Definition of the Arrays to store the results
 # May not be the best way to store things
-pflowTrials = Array{Float64}(NLines, H, K, Iterations);
-storageTrials = Array{Float64}(NNodes, H, K, Iterations);
-batterychargeTrials = Array{Float64}(NNodes, H, K, Iterations);
-batterydischargeTrials = Array{Float64}(NNodes, H, K, Iterations);
-loadsheddingTrials = Array{Float64}(NNodes, H, K, Iterations);
-productionsheddingTrials = Array{Float64}(NNodes, H, K, Iterations);
-pgenerationTrials = Array{Float64}(NGenerators, H, K, Iterations);
+pflowTrials = Array{Float64}(undef, NLines, H, K, Iterations);
+storageTrials = Array{Float64}(undef, NNodes, H, K, Iterations);
+batterychargeTrials = Array{Float64}(undef, NNodes, H, K, Iterations);
+batterydischargeTrials = Array{Float64}(undef, NNodes, H, K, Iterations);
+loadsheddingTrials = Array{Float64}(undef, NNodes, H, K, Iterations);
+productionsheddingTrials = Array{Float64}(undef, NNodes, H, K, Iterations);
+pgenerationTrials = Array{Float64}(undef, NGenerators, H, K, Iterations);
 
 # Here we define the arrays to store the cuts
 # ECut[:, n, k, t] is a vector of cut-coefficients of node n (`E^l_{n,t,k}` of NLDS of node n at stage t, outcome k)
 # eCut[:, k, t, l] is a vector of cut-RHS (`e^l_{t,k}` of NLDS of layer l at stage t, outcome k)
 # Note that there are no cuts at stage H
-ECut = Array{Float64}(Iterations*K, NNodes, NLattice[2], H-1); # Note: Needs to be generalaized
-eCut = Array{Float64}(Iterations*K, NLattice[2], H-1, NLayers); # Note: Needs to be generalaized
+ECut = Array{Float64}(undef, Iterations*K, NNodes, NLattice[2], H-1); # Note: Needs to be generalaized
+eCut = Array{Float64}(undef, Iterations*K, NLattice[2], H-1, NLayers); # Note: Needs to be generalaized
 
 # NumCuts[t, l, k] is the number of cuts of layer l at stage t, outcome k
-NumCuts = Array{Int64}(H-1, NLayers, NLattice[2]);
+NumCuts = Array{Int64}(undef, H-1, NLayers, NLattice[2]);
 # We initalize the number of cuts to 0
 for i =1:length(NumCuts)
     NumCuts[i] = 0
@@ -49,6 +49,7 @@ struct MyProblem
   p_out
   theta
   pgeneration
+  previous_storage
   Balance_rootnode
   GenerationMax
   GenerationMin
@@ -72,12 +73,12 @@ end
 struct Solutions
     " Here we store the decision variables"
     # Saved as Arrays
-    pflow::Array{Float64,1}
-    storage::Array{Float64,1}
-    batterycharge::Array{Float64,1}
-    batterydischarge::Array{Float64,1}
-    loadshedding::Array{Float64,1}
-    productionshedding::Array{Float64,1}
+    pflow#::Array{Float64,1}
+    storage#::Array{Float64,1}
+    batterycharge#::Array{Float64,1}
+    batterydischarge#::Array{Float64,1}
+    loadshedding#::Array{Float64,1}
+    productionshedding#::Array{Float64,1}
     pgeneration
 
     " Here we store the dual multipliers"
@@ -148,7 +149,12 @@ function UsefulCut(LayerChoice, TimeChoice, OutcomeChoice, Etemp, etemp)
 end
 
 function createModel(LayerChoice, TimeChoice, OutcomeChoice)
-    model = Model(solver=GurobiSolver(OutputFlag = 0))
+    # Definition of the model
+    # model = Model(with_optimizer(Gurobi.Optimizer, LogToConsole=0)); # ERROR: LoadError: AssertionError: dual <= 0.0 I DONT KNOW WHY
+    # model = Model(with_optimizer(Clp.Optimizer, LogLevel=0)); # ERROR: LoadError: AssertionError: dual <= 0.0
+    # model = Model(with_optimizer(GLPK.Optimizer, msg_lev=0)); # ERROR: LoadError: AssertionError: dual <= 0.0
+    model = Model(with_optimizer(Ipopt.Optimizer, print_level=0)); # Ipopt works!
+
     #model.internalModelLoaded = false
     # Variables
     @variable(model, pflow[LayerLines[LayerChoice]]  );
@@ -160,6 +166,8 @@ function createModel(LayerChoice, TimeChoice, OutcomeChoice)
     @variable(model, p_in[HeadNodes[LayerChoice]]);
     @variable(model, p_out[n in LeafNodes[LayerChoice], LeafChildren[LayerChoice,n]] );
     @variable(model, theta >= 0 );
+    # new variable to be fixed to the previous storage level
+    @variable(model, previous_storage[LayerNodes[LayerChoice]]);
 
     # Definition of the objective function and additional variables, constraints
     # in case we are in the root Node
@@ -180,11 +188,13 @@ function createModel(LayerChoice, TimeChoice, OutcomeChoice)
 
     ##### Constraints
     # Battery Constraints
-    if TimeChoice == 1
-        @constraint(model,  BatteryDynamics[n in LayerNodes[LayerChoice]], storage[n] - BatteryChargeEfficiency[n] * batterycharge[n] + batterydischarge[n]/BatteryDischargeEfficiency[n] - ini_storage[n] == 0.0 )
-    else
-        @constraint(model,  BatteryDynamics[n in LayerNodes[LayerChoice]], storage[n] - BatteryChargeEfficiency[n] * batterycharge[n] + batterydischarge[n]/BatteryDischargeEfficiency[n] == 0.0 )
-    end
+    # if TimeChoice == 1
+    #     @constraint(model,  BatteryDynamics[n in LayerNodes[LayerChoice]], storage[n] - BatteryChargeEfficiency[n] * batterycharge[n] + batterydischarge[n]/BatteryDischargeEfficiency[n] - ini_storage[n] == 0.0 )
+    # else
+    @constraint(model,  BatteryDynamics[n in LayerNodes[LayerChoice]],
+        (storage[n] - BatteryChargeEfficiency[n] * batterycharge[n] + batterydischarge[n]/BatteryDischargeEfficiency[n] == previous_storage[n])
+    );
+    # end
 
     # Balance Constraints
     # Balancing - usual nodes
@@ -210,10 +220,10 @@ function createModel(LayerChoice, TimeChoice, OutcomeChoice)
     + pflow[n-1] - sum(p_out[n,j] for j in LeafChildren[LayerChoice,n]) ==  PNetDemand[n,TimeChoice][OutcomeChoice] ) );
 
     # p_in constraint
-    @constraint(model, Pin_fix[n in HeadNodes[LayerChoice]], p_in[n] == p_in_data[LayerChoice,TimeChoice][OutcomeChoice]#=p_in_data[TimeChoice,OutcomeChoice] =#);
+    @constraint(model, Pin_fix[n in HeadNodes[LayerChoice]], p_in[n] == p_in_data[LayerChoice,TimeChoice][OutcomeChoice]);
 
     # p_out constraint
-    @constraint(model, Pout_fix[n in LeafNodes[LayerChoice], m in LeafChildren[LayerChoice,n]], p_out[n,m] == p_out_data[n,m][TimeChoice][OutcomeChoice]#=p_out_data[TimeChoice,OutcomeChoice]=# );
+    @constraint(model, Pout_fix[n in LeafNodes[LayerChoice], m in LeafChildren[LayerChoice,n]], p_out[n,m] == p_out_data[n,m][TimeChoice][OutcomeChoice]);
 
     # p_in & pflow equality constraint
     @constraint(model, Pin_Flow_equality[n in HeadNodes[LayerChoice]], p_in[n] - pflow[n-1] == 0.0);
@@ -241,19 +251,19 @@ function createModel(LayerChoice, TimeChoice, OutcomeChoice)
 
     if LayerChoice == 1
         return MyProblem(model, pflow, storage, batterycharge, batterydischarge, loadshedding, productionshedding, p_in,
-        p_out, theta, pgeneration, Balance_rootnode, GenerationMax, GenerationMin, Balance, Balance_headnode,
+        p_out, theta, pgeneration, previous_storage, Balance_rootnode, GenerationMax, GenerationMin, Balance, Balance_headnode,
         Balance_leafnode, Balance_headleafnode, Pin_fix, Pout_fix, Pin_Flow_equality, FlowMax, FlowMin, StorageMax,
         BatteryChargeMax, BatteryDischargeMax, BatteryDynamics, Cuts)
 
     else
         return MyProblem(model, pflow, storage, batterycharge, batterydischarge, loadshedding, productionshedding, p_in,
-        p_out, theta, "no", "no", "no", "no", Balance, Balance_headnode,
+        p_out, theta, "no",  previous_storage, "no", "no", "no", Balance, Balance_headnode,
         Balance_leafnode, Balance_headleafnode, Pin_fix, Pout_fix, Pin_Flow_equality, FlowMax, FlowMin, StorageMax,
         BatteryChargeMax, BatteryDischargeMax, BatteryDynamics, Cuts)
     end
 end
 
-tic()
+start = time()
 Models = [ [] for LayerChoice = 1:NLayers, TimeChoice = 1:H, OutcomeChoice = 1:NLattice[2] ];
 for LayerChoice = 1:NLayers
     for TimeChoice = 1:H
@@ -262,7 +272,7 @@ for LayerChoice = 1:NLayers
         end
     end
 end
-DefinitionModels = toq()
+DefinitionModels = time()-start;
 
 # The NLDS algorithm
 function NLDS(TimeChoice, SampleChoice, iter, LayerChoice, OutcomeChoice)
@@ -273,68 +283,73 @@ function NLDS(TimeChoice, SampleChoice, iter, LayerChoice, OutcomeChoice)
     " LayerChoice -- Refers to the current Layer"
     " OutcomeChoice -- Refers to the outcome k of time stage t"
     # Definition of the model
-    tic()
+    start = time()
     ModelChoice = Models[LayerChoice, TimeChoice, OutcomeChoice][1];
     # Battery Constraints
-    if TimeChoice > 1
+    # setRHS has beeen discarded, use 'fix' instead
+    if TimeChoice == 1
         for n in LayerNodes[LayerChoice]
-            JuMP.setRHS(ModelChoice.BatteryDynamics[n], storageTrials[n, TimeChoice-1, SampleChoice, iter])
+            fix(ModelChoice.previous_storage[n],  ini_storage[n]);
+        end
+    else
+        for n in LayerNodes[LayerChoice]
+            fix(ModelChoice.previous_storage[n],  storageTrials[n, TimeChoice-1, SampleChoice, iter]);
         end
     end
-    TimeOther[LayerChoice, SampleChoice, iter] += toq()
+    TimeOther[LayerChoice, SampleChoice, iter] += time() - start;
 
     ##### Solve the Model
-    tic()
-    solve(ModelChoice.model)
-    TimeSolve[LayerChoice, SampleChoice, iter] += toq()
-    #println("       Stage Cost value: ", getobjectivevalue(ModelChoice.model))
+    start = time()
+    optimize!(ModelChoice.model)
+    TimeSolve[LayerChoice, SampleChoice, iter] += time() - start;
+    #println("       Stage Cost value: ", objective_value(ModelChoice.model))
     ##### Here we return the results
     # Here we translate JuMP.Dict type of dual Multipliers & optimal decisions to Dict Type
-    BatteryDynamicsMultipliers =  CreateDictionaryV( push!([], getdual(ModelChoice.BatteryDynamics)) );
-    BalanceMultipliers = CreateDictionaryV( push!([], getdual(ModelChoice.Balance), getdual(ModelChoice.Balance_headnode), getdual(ModelChoice.Balance_leafnode), getdual(ModelChoice.Balance_headleafnode) ));
-    Pin_fixMultipliers = CreateDictionaryV( push!([], getdual(ModelChoice.Pin_fix)) );
-    Pout_fixMultipliers = CreateDictionaryA( push!([], getdual(ModelChoice.Pout_fix)) );
-    FlowMaxMultipliers = CreateDictionaryV( push!([], getdual(ModelChoice.FlowMax)) );
-    FlowMinMultipliers = CreateDictionaryV( push!([], getdual(ModelChoice.FlowMin)) );
-    Pin_Flow_equalityMultipliers = CreateDictionaryV( push!([], getdual(ModelChoice.Pin_Flow_equality)) );
-    StorageMaxMultipliers = CreateDictionaryV( push!([], getdual(ModelChoice.StorageMax)) );
-    BatteryChargeMaxMultipliers = CreateDictionaryV( push!([], getdual(ModelChoice.BatteryChargeMax)) );
-    BatteryDischargeMaxMultipliers = CreateDictionaryV( push!([], getdual(ModelChoice.BatteryDischargeMax)) );
+    BatteryDynamicsMultipliers =  CreateDictionaryV( push!([], dual.(ModelChoice.BatteryDynamics)) );
+    BalanceMultipliers = CreateDictionaryV( push!([], dual.(ModelChoice.Balance), dual.(ModelChoice.Balance_headnode), dual.(ModelChoice.Balance_leafnode), dual.(ModelChoice.Balance_headleafnode) ));
+    Pin_fixMultipliers = CreateDictionaryV( push!([], dual.(ModelChoice.Pin_fix)) );
+    Pout_fixMultipliers = CreateDictionaryA( push!([], dual.(ModelChoice.Pout_fix).data) ); # .data is required
+    FlowMaxMultipliers = CreateDictionaryV( push!([], dual.(ModelChoice.FlowMax)) );
+    FlowMinMultipliers = CreateDictionaryV( push!([], dual.(ModelChoice.FlowMin)) );
+    Pin_Flow_equalityMultipliers = CreateDictionaryV( push!([], dual.(ModelChoice.Pin_Flow_equality)) );
+    StorageMaxMultipliers = CreateDictionaryV( push!([], dual.(ModelChoice.StorageMax)) );
+    BatteryChargeMaxMultipliers = CreateDictionaryV( push!([], dual.(ModelChoice.BatteryChargeMax)) );
+    BatteryDischargeMaxMultipliers = CreateDictionaryV( push!([], dual.(ModelChoice.BatteryDischargeMax)) );
 
     # Return certain data depending on the LayerChoice and TimeChoice
     if LayerChoice == 1
-        BalanceMultipliers[1] = getdual(ModelChoice.Balance_rootnode);
-        GenerationMaxMultipliers = CreateDictionaryV( push!([], getdual(ModelChoice.GenerationMax)) );
-        GenerationMinMultipliers = CreateDictionaryV( push!([], getdual(ModelChoice.GenerationMin)) );
+        BalanceMultipliers[1] = dual.(ModelChoice.Balance_rootnode);
+        GenerationMaxMultipliers = CreateDictionaryV( push!([], dual.(ModelChoice.GenerationMax)) );
+        GenerationMinMultipliers = CreateDictionaryV( push!([], dual.(ModelChoice.GenerationMin)) );
 
         if TimeChoice == H || NumCuts[TimeChoice, LayerChoice, OutcomeChoice] < 1
-            return Solutions( getvalue(ModelChoice.pflow)[:], getvalue(ModelChoice.storage)[:], getvalue(ModelChoice.batterycharge)[:],
-            getvalue(ModelChoice.batterydischarge)[:], getvalue(ModelChoice.loadshedding)[:], getvalue(ModelChoice.productionshedding)[:],
-            getvalue(ModelChoice.pgeneration)[:], BatteryDynamicsMultipliers, BalanceMultipliers,
+            return Solutions( value.(ModelChoice.pflow)[:], value.(ModelChoice.storage)[:], value.(ModelChoice.batterycharge)[:],
+            value.(ModelChoice.batterydischarge)[:], value.(ModelChoice.loadshedding)[:], value.(ModelChoice.productionshedding)[:],
+            value.(ModelChoice.pgeneration)[:], BatteryDynamicsMultipliers, BalanceMultipliers,
             Pin_fixMultipliers, Pout_fixMultipliers, Pin_Flow_equalityMultipliers, FlowMaxMultipliers,
             FlowMinMultipliers, StorageMaxMultipliers, BatteryChargeMaxMultipliers, BatteryDischargeMaxMultipliers, "NoCuts",
-            GenerationMaxMultipliers, GenerationMinMultipliers, getobjectivevalue(ModelChoice.model) )
+            GenerationMaxMultipliers, GenerationMinMultipliers, objective_value(ModelChoice.model) )
         else
-            return Solutions(getvalue(ModelChoice.pflow)[:], getvalue(ModelChoice.storage)[:], getvalue(ModelChoice.batterycharge)[:],
-            getvalue(ModelChoice.batterydischarge)[:], getvalue(ModelChoice.loadshedding)[:], getvalue(ModelChoice.productionshedding)[:],
-            getvalue(ModelChoice.pgeneration)[:], BatteryDynamicsMultipliers,
+            return Solutions(value.(ModelChoice.pflow)[:], value.(ModelChoice.storage)[:], value.(ModelChoice.batterycharge)[:],
+            value.(ModelChoice.batterydischarge)[:], value.(ModelChoice.loadshedding)[:], value.(ModelChoice.productionshedding)[:],
+            value.(ModelChoice.pgeneration)[:], BatteryDynamicsMultipliers,
             BalanceMultipliers, Pin_fixMultipliers, Pout_fixMultipliers, Pin_Flow_equalityMultipliers, FlowMaxMultipliers,
             FlowMinMultipliers, StorageMaxMultipliers, BatteryChargeMaxMultipliers, BatteryDischargeMaxMultipliers,
-            getdual(ModelChoice.Cuts), GenerationMaxMultipliers, GenerationMinMultipliers, getobjectivevalue(ModelChoice.model) )
+            dual.(ModelChoice.Cuts), GenerationMaxMultipliers, GenerationMinMultipliers, objective_value(ModelChoice.model) )
         end
     else
         if TimeChoice == H || NumCuts[TimeChoice, LayerChoice, OutcomeChoice] < 1
-            return Solutions(getvalue(ModelChoice.pflow)[:], getvalue(ModelChoice.storage)[:], getvalue(ModelChoice.batterycharge)[:],
-            getvalue(ModelChoice.batterydischarge)[:], getvalue(ModelChoice.loadshedding)[:], getvalue(ModelChoice.productionshedding)[:],
+            return Solutions(value.(ModelChoice.pflow)[:], value.(ModelChoice.storage)[:], value.(ModelChoice.batterycharge)[:],
+            value.(ModelChoice.batterydischarge)[:], value.(ModelChoice.loadshedding)[:], value.(ModelChoice.productionshedding)[:],
             "No pgeneration", BatteryDynamicsMultipliers, BalanceMultipliers, Pin_fixMultipliers, Pout_fixMultipliers,
             Pin_Flow_equalityMultipliers, FlowMaxMultipliers, FlowMinMultipliers, StorageMaxMultipliers, BatteryChargeMaxMultipliers,
-            BatteryDischargeMaxMultipliers, "NoCuts", "No pgeneration", "No pgeneration", getobjectivevalue(ModelChoice.model) )
+            BatteryDischargeMaxMultipliers, "NoCuts", "No pgeneration", "No pgeneration", objective_value(ModelChoice.model) )
         else
-            return Solutions(getvalue(ModelChoice.pflow)[:], getvalue(ModelChoice.storage)[:], getvalue(ModelChoice.batterycharge)[:],
-            getvalue(ModelChoice.batterydischarge)[:], getvalue(ModelChoice.loadshedding)[:], getvalue(ModelChoice.productionshedding)[:],
+            return Solutions(value.(ModelChoice.pflow)[:], value.(ModelChoice.storage)[:], value.(ModelChoice.batterycharge)[:],
+            value.(ModelChoice.batterydischarge)[:], value.(ModelChoice.loadshedding)[:], value.(ModelChoice.productionshedding)[:],
             "No pgeneration", BatteryDynamicsMultipliers, BalanceMultipliers, Pin_fixMultipliers, Pout_fixMultipliers,
             Pin_Flow_equalityMultipliers, FlowMaxMultipliers, FlowMinMultipliers, StorageMaxMultipliers, BatteryChargeMaxMultipliers,
-            BatteryDischargeMaxMultipliers, getdual(ModelChoice.Cuts), "No pgeneration", "No pgeneration", getobjectivevalue(ModelChoice.model) )
+            BatteryDischargeMaxMultipliers, dual.(ModelChoice.Cuts), "No pgeneration", "No pgeneration", objective_value(ModelChoice.model) )
         end
     end
 end
@@ -384,14 +399,14 @@ function ForwardPass(K, LayerChoice, iter)
     # Store The Lower Bound
     LowerBound[LayerChoice, iter] = FirstNLDS.OptimalValue
     # Store the results
-    pflowTrials[LayerLines[LayerChoice], 1, :, iter] = repmat(FirstNLDS.pflow,1,K);
-    storageTrials[LayerNodes[LayerChoice], 1, :, iter] = repmat(FirstNLDS.storage,1,K);
-    batterychargeTrials[LayerNodes[LayerChoice], 1, :, iter] = repmat(FirstNLDS.batterycharge,1,K);
-    batterydischargeTrials[LayerNodes[LayerChoice], 1, :, iter] = repmat(FirstNLDS.batterydischarge,1,K);
-    loadsheddingTrials[LayerNodes[LayerChoice], 1, :, iter] = repmat(FirstNLDS.loadshedding,1,K);
-    productionsheddingTrials[LayerNodes[LayerChoice], 1, :, iter] = repmat(FirstNLDS.productionshedding,1,K);
+    pflowTrials[LayerLines[LayerChoice], 1, :, iter] = repeat(FirstNLDS.pflow,1,K);
+    storageTrials[LayerNodes[LayerChoice], 1, :, iter] = repeat(FirstNLDS.storage,1,K);
+    batterychargeTrials[LayerNodes[LayerChoice], 1, :, iter] = repeat(FirstNLDS.batterycharge,1,K);
+    batterydischargeTrials[LayerNodes[LayerChoice], 1, :, iter] = repeat(FirstNLDS.batterydischarge,1,K);
+    loadsheddingTrials[LayerNodes[LayerChoice], 1, :, iter] = repeat(FirstNLDS.loadshedding,1,K);
+    productionsheddingTrials[LayerNodes[LayerChoice], 1, :, iter] = repeat(FirstNLDS.productionshedding,1,K);
     if LayerChoice == 1
-        pgenerationTrials[1:NGenerators, 1, :, iter] = repmat(FirstNLDS.pgeneration,1,K)
+        pgenerationTrials[1:NGenerators, 1, :, iter] = repeat(FirstNLDS.pgeneration,1,K)
     end
     for SampleChoice = 1:K
         ForwardTrial(iter, LayerChoice, SampleScenario, SampleChoice)
@@ -422,7 +437,7 @@ function BackwardTrial(TimeChoice, SampleChoice, iter, LayerChoice, ECutTempStor
     # for loop for compute the cuts of NLDS(t-1,j) for all j (j = OutcomeChoice_1)
     for OutcomeChoice_1 = 1:NLattice[TimeChoice-1]
         # compute Cut Coefficient: E
-        EE = Array{Float64}(length(LayerNodes[LayerChoice]));
+        EE = Array{Float64}(undef,length(LayerNodes[LayerChoice]));
         for i = 1:length(LayerNodes[LayerChoice])
             n = LayerNodes[LayerChoice][i];
             EE[i] = sum(
@@ -441,15 +456,15 @@ function BackwardTrial(TimeChoice, SampleChoice, iter, LayerChoice, ECutTempStor
                 +sum(NesLDS_tk[k].BatteryChargeMax[n] .* BatteryChargeRate[n] for n in LayerNodes[LayerChoice])
                 +sum(NesLDS_tk[k].BatteryDischargeMax[n] .* BatteryChargeRate[n] for n in LayerNodes[LayerChoice]))
                 for k = 1:NLattice[TimeChoice] )
-        if !isempty(HeadNodes[LayerChoice]) # CAUTION needs to be generalized for multi-layer (p_in_data)
+        if !isempty(HeadNodes[LayerChoice])
             ee += sum(TransProb[LayerChoice,TimeChoice-1][OutcomeChoice_1,k] *
-                sum(NesLDS_tk[k].Pin_fix[n] .* p_in_data[LayerChoice,TimeChoice][k]#=p_in_data[TimeChoice,k] =#for n in HeadNodes[LayerChoice])
+                sum(NesLDS_tk[k].Pin_fix[n] .* p_in_data[LayerChoice,TimeChoice][k] for n in HeadNodes[LayerChoice])
                 for k = 1:NLattice[TimeChoice] )
         end
-        if !isempty(LeafNodes[LayerChoice]) # CAUTION needs to be generalized for multi-layer (p_out_data)
+        if !isempty(LeafNodes[LayerChoice])
             for n in LeafNodes[LayerChoice], m in LeafChildren[LayerChoice,n]
                 ee += sum(TransProb[LayerChoice,TimeChoice-1][OutcomeChoice_1,k] * (
-                    sum(NesLDS_tk[k].Pout_fix[[n,m]] .* p_out_data[n,m][TimeChoice][k] #=p_out_data[TimeChoice,k]=#)
+                    sum(NesLDS_tk[k].Pout_fix[[n,m]] .* p_out_data[n,m][TimeChoice][k])
                 )
                 for k = 1:NLattice[TimeChoice])
             end
@@ -484,8 +499,8 @@ function BackwardPass(K, LayerChoice, iter)
         # Define the current time stage
         TimeChoice = H - t;
         # Define the temporal arrays to store the cuts, useful for the parallel version
-        ECutTempStorage = Array{Float64}(K, NLattice[TimeChoice], length(LayerNodes[LayerChoice]));
-        eCutTempStorage = Array{Float64}(K, NLattice[TimeChoice]);
+        ECutTempStorage = Array{Float64}(undef,K, NLattice[TimeChoice], length(LayerNodes[LayerChoice]));
+        eCutTempStorage = Array{Float64}(undef,K, NLattice[TimeChoice]);
 
         for SampleChoice = 1:K # for loop for the trials
             BackwardTrial(TimeChoice, SampleChoice, iter, LayerChoice, ECutTempStorage, eCutTempStorage)
@@ -507,10 +522,10 @@ function BackwardPass(K, LayerChoice, iter)
                         end
                         eCut[NumCuts[TimeChoice-1, LayerChoice, OutcomeChoice_1], OutcomeChoice_1, TimeChoice-1, LayerChoice] = etemp;
 
-                        tic()
+                        start = time();
                         ModelChoice = Models[LayerChoice, TimeChoice-1, OutcomeChoice_1][1];
                         push!(ModelChoice.Cuts, @constraint(ModelChoice.model, ModelChoice.theta >= etemp - sum(ECut[NumCuts[TimeChoice-1, LayerChoice, OutcomeChoice_1], n, OutcomeChoice_1, TimeChoice-1] * ModelChoice.storage[n] for n in LayerNodes[LayerChoice]) ));
-                        TimeOther[LayerChoice, SampleChoice, iter] += toq()
+                        TimeOther[LayerChoice, SampleChoice, iter] += time() - start;
                     end
                 else  # if there was no cut -> simply add the cut (maybe at the first iteration)
                     NumCuts[TimeChoice-1, LayerChoice, OutcomeChoice_1] += 1;
@@ -519,10 +534,10 @@ function BackwardPass(K, LayerChoice, iter)
                         ECut[NumCuts[TimeChoice-1, LayerChoice, OutcomeChoice_1], n, OutcomeChoice_1, TimeChoice-1] = Etemp[i];
                     end
                     eCut[NumCuts[TimeChoice-1, LayerChoice, OutcomeChoice_1], OutcomeChoice_1, TimeChoice-1, LayerChoice] = etemp;
-                    tic()
+                    start = time();
                     ModelChoice = Models[LayerChoice, TimeChoice-1, OutcomeChoice_1][1];
                     push!(ModelChoice.Cuts, @constraint(ModelChoice.model, ModelChoice.theta >= etemp - sum(ECut[NumCuts[TimeChoice-1, LayerChoice, OutcomeChoice_1], n, OutcomeChoice_1, TimeChoice-1] * ModelChoice.storage[n] for n in LayerNodes[LayerChoice]) ));
-                    TimeOther[LayerChoice, SampleChoice, iter] += toq()
+                    TimeOther[LayerChoice, SampleChoice, iter] += time() - start;
                 end
             end
         end # end checking/adding the cut

@@ -1,4 +1,4 @@
-@everywhere using JuMP, Gurobi
+@everywhere using JuMP, Gurobi,  Ipopt, Statistics
 
 # Here we load the SDDP data
 @everywhere include("LoadDataSDDP.jl")
@@ -8,12 +8,12 @@
 @everywhere struct Solutions
     " Struct that stores the decision variables"
     # Saved as Arrays
-    pflow::Array{Float64,1}
-    storage::Array{Float64,1}
-    batterycharge::Array{Float64,1}
-    batterydischarge::Array{Float64,1}
-    loadshedding::Array{Float64,1}
-    productionshedding::Array{Float64,1}
+    pflow#::Array{Float64,1}
+    storage#::Array{Float64,1}
+    batterycharge#::Array{Float64,1}
+    batterydischarge#::Array{Float64,1}
+    loadshedding#::Array{Float64,1}
+    productionshedding#::Array{Float64,1}
     pgeneration
 
     " Struct that stores the dual multipliers"
@@ -93,7 +93,11 @@ end
     " OutcomeChoice -- Refers to the outcome k of time stage t"
 
     # Definition of the model
-    model = Model(solver=GurobiSolver(OutputFlag=0))
+    # model = Model(with_optimizer(Gurobi.Optimizer, LogToConsole=0)); # ERROR: LoadError: AssertionError: dual <= 0.0 I DONT KNOW WHY
+    # model = Model(with_optimizer(Clp.Optimizer, LogLevel=0)); # ERROR: LoadError: AssertionError: dual <= 0.0
+    # model = Model(with_optimizer(GLPK.Optimizer, msg_lev=0)); # ERROR: LoadError: AssertionError: dual <= 0.0
+    model = Model(with_optimizer(Ipopt.Optimizer, print_level=0)); # Ipopt works!
+
     # Variables
     @variable(model, pflow[LayerLines[LayerChoice]]  );
     @variable(model, storage[LayerNodes[LayerChoice]] >= 0);
@@ -192,55 +196,55 @@ end
 
 
     ##### Solve the Model
-    solve(model)
-    #println("       Stage Cost value: ", getobjectivevalue(model))
+    optimize!(model)
+    #println("       Stage Cost value: ", objective_value(model))
     ##### Here we return the results
     # Here we translate JuMP.Dict type of dual Multipliers & optimal decisions to Dict Type
 
-    BatteryDynamicsMultipliers =  CreateDictionaryV( push!([], getdual(BatteryDynamics)) );
-    BalanceMultipliers = CreateDictionaryV( push!([], getdual(Balance), getdual(Balance_headnode), getdual(Balance_leafnode), getdual(Balance_headleafnode) ));
-    Pin_fixMultipliers = CreateDictionaryV( push!([], getdual(Pin_fix)) );
-    Pout_fixMultipliers = CreateDictionaryA( push!([], getdual(Pout_fix)) );
-    FlowMaxMultipliers = CreateDictionaryV( push!([], getdual(FlowMax)) );
-    FlowMinMultipliers = CreateDictionaryV( push!([], getdual(FlowMin)) );
-    Pin_Flow_equalityMultipliers = CreateDictionaryV( push!([], getdual(Pin_Flow_equality)) );
-    StorageMaxMultipliers = CreateDictionaryV( push!([], getdual(StorageMax)) );
-    BatteryChargeMaxMultipliers = CreateDictionaryV( push!([], getdual(BatteryChargeMax)) );
-    BatteryDischargeMaxMultipliers = CreateDictionaryV( push!([], getdual(BatteryDischargeMax)) );
+    BatteryDynamicsMultipliers =  CreateDictionaryV( push!([], dual.(BatteryDynamics)) );
+    BalanceMultipliers = CreateDictionaryV( push!([], dual.(Balance), dual.(Balance_headnode), dual.(Balance_leafnode), dual.(Balance_headleafnode) ));
+    Pin_fixMultipliers = CreateDictionaryV( push!([], dual.(Pin_fix)) );
+    Pout_fixMultipliers = CreateDictionaryA( push!([], dual.(Pout_fix).data) ); # .data is required
+    FlowMaxMultipliers = CreateDictionaryV( push!([], dual.(FlowMax)) );
+    FlowMinMultipliers = CreateDictionaryV( push!([], dual.(FlowMin)) );
+    Pin_Flow_equalityMultipliers = CreateDictionaryV( push!([], dual.(Pin_Flow_equality)) );
+    StorageMaxMultipliers = CreateDictionaryV( push!([], dual.(StorageMax)) );
+    BatteryChargeMaxMultipliers = CreateDictionaryV( push!([], dual.(BatteryChargeMax)) );
+    BatteryDischargeMaxMultipliers = CreateDictionaryV( push!([], dual.(BatteryDischargeMax)) );
 
     # Return certain data depending on the LayerChoice and TimeChoice
     if LayerChoice == 1
-        BalanceMultipliers[1] = getdual(Balance_rootnode);
-        GenerationMaxMultipliers = CreateDictionaryV( push!([], getdual(GenerationMax)) );
-        GenerationMinMultipliers = CreateDictionaryV( push!([], getdual(GenerationMin)) );
+        BalanceMultipliers[1] = dual.(Balance_rootnode);
+        GenerationMaxMultipliers = CreateDictionaryV( push!([], dual.(GenerationMax)) );
+        GenerationMinMultipliers = CreateDictionaryV( push!([], dual.(GenerationMin)) );
         if TimeChoice == H || NumCuts[OutcomeChoice, TimeChoice, LayerChoice] < 1
-            return Solutions( getvalue(pflow)[:], getvalue(storage)[:], getvalue(batterycharge)[:],
-            getvalue(batterydischarge)[:], getvalue(loadshedding)[:], getvalue(productionshedding)[:],
-            getvalue(pgeneration)[:], BatteryDynamicsMultipliers, BalanceMultipliers,
+            return Solutions( value.(pflow)[:], value.(storage)[:], value.(batterycharge)[:],
+            value.(batterydischarge)[:], value.(loadshedding)[:], value.(productionshedding)[:],
+            value.(pgeneration)[:], BatteryDynamicsMultipliers, BalanceMultipliers,
             Pin_fixMultipliers, Pout_fixMultipliers, Pin_Flow_equalityMultipliers, FlowMaxMultipliers,
             FlowMinMultipliers, StorageMaxMultipliers, BatteryChargeMaxMultipliers, BatteryDischargeMaxMultipliers, "NoCuts", GenerationMaxMultipliers,
-            GenerationMinMultipliers, getobjectivevalue(model) )
+            GenerationMinMultipliers, objective_value(model) )
         else
-            return Solutions(getvalue(pflow)[:], getvalue(storage)[:], getvalue(batterycharge)[:],
-            getvalue(batterydischarge)[:], getvalue(loadshedding)[:], getvalue(productionshedding)[:],
-            getvalue(pgeneration)[:], BatteryDynamicsMultipliers,
+            return Solutions(value.(pflow)[:], value.(storage)[:], value.(batterycharge)[:],
+            value.(batterydischarge)[:], value.(loadshedding)[:], value.(productionshedding)[:],
+            value.(pgeneration)[:], BatteryDynamicsMultipliers,
             BalanceMultipliers, Pin_fixMultipliers, Pout_fixMultipliers, Pin_Flow_equalityMultipliers, FlowMaxMultipliers,
-            FlowMinMultipliers, StorageMaxMultipliers, BatteryChargeMaxMultipliers, BatteryDischargeMaxMultipliers, getdual(Cuts), GenerationMaxMultipliers,
-            GenerationMinMultipliers, getobjectivevalue(model) )
+            FlowMinMultipliers, StorageMaxMultipliers, BatteryChargeMaxMultipliers, BatteryDischargeMaxMultipliers, dual.(Cuts), GenerationMaxMultipliers,
+            GenerationMinMultipliers, objective_value(model) )
         end
     else
         if TimeChoice == H || NumCuts[OutcomeChoice, TimeChoice, LayerChoice] < 1
-            return Solutions(getvalue(pflow)[:], getvalue(storage)[:], getvalue(batterycharge)[:],
-            getvalue(batterydischarge)[:], getvalue(loadshedding)[:], getvalue(productionshedding)[:],
+            return Solutions(value.(pflow)[:], value.(storage)[:], value.(batterycharge)[:],
+            value.(batterydischarge)[:], value.(loadshedding)[:], value.(productionshedding)[:],
             "No pgeneration", BatteryDynamicsMultipliers, BalanceMultipliers, Pin_fixMultipliers, Pout_fixMultipliers,
             Pin_Flow_equalityMultipliers, FlowMaxMultipliers, FlowMinMultipliers, StorageMaxMultipliers, BatteryChargeMaxMultipliers,
-            BatteryDischargeMaxMultipliers, "NoCuts", "No pgeneration", "No pgeneration", getobjectivevalue(model) )
+            BatteryDischargeMaxMultipliers, "NoCuts", "No pgeneration", "No pgeneration", objective_value(model) )
         else
-            return Solutions(getvalue(pflow)[:], getvalue(storage)[:], getvalue(batterycharge)[:],
-            getvalue(batterydischarge)[:], getvalue(loadshedding)[:], getvalue(productionshedding)[:],
+            return Solutions(value.(pflow)[:], value.(storage)[:], value.(batterycharge)[:],
+            value.(batterydischarge)[:], value.(loadshedding)[:], value.(productionshedding)[:],
             "No pgeneration", BatteryDynamicsMultipliers, BalanceMultipliers, Pin_fixMultipliers, Pout_fixMultipliers,
             Pin_Flow_equalityMultipliers, FlowMaxMultipliers, FlowMinMultipliers, StorageMaxMultipliers, BatteryChargeMaxMultipliers,
-            BatteryDischargeMaxMultipliers, getdual(Cuts), "No pgeneration", "No pgeneration", getobjectivevalue(model) )
+            BatteryDischargeMaxMultipliers, dual.(Cuts), "No pgeneration", "No pgeneration", objective_value(model) )
         end
     end
 end
@@ -258,7 +262,7 @@ end
         # TAKU add
         # choose the current scenario
         OutcomeChoice = SampleScenario[LayerChoice, TimeChoice, SampleChoice]
-        #println("   ====Forward Pass: solving layer ",LayerChoice,", Stage ", TimeChoice, ", Outcome ",OutcomeChoice, ", MC Sample ",SampleChoice, ", Iteration ",iter )
+        println("   ====Forward Pass: solving layer ",LayerChoice,", Stage ", TimeChoice, ", Outcome ",OutcomeChoice, ", MC Sample ",SampleChoice, ", Iteration ",iter )
         NestedLDS = NLDS(TimeChoice, SampleChoice, iter, LayerChoice, OutcomeChoice, storageTrials, ECut, eCut, NumCuts);
         #println("\n")
         # end TAKU add
@@ -293,14 +297,14 @@ function ForwardPass(K, LayerChoice, iter)
     # Store The Lower Bound
     LowerBound[LayerChoice, iter] = FirstNLDS.OptimalValue
     # Store the results
-    pflowTrials[LayerLines[LayerChoice], 1, :, iter] = repmat(FirstNLDS.pflow,1,K);
-    storageTrials[LayerNodes[LayerChoice], 1, :, iter] = repmat(FirstNLDS.storage,1,K);
-    batterychargeTrials[LayerNodes[LayerChoice], 1, :, iter] = repmat(FirstNLDS.batterycharge,1,K);
-    batterydischargeTrials[LayerNodes[LayerChoice], 1, :, iter] = repmat(FirstNLDS.batterydischarge,1,K);
-    loadsheddingTrials[LayerNodes[LayerChoice], 1, :, iter] = repmat(FirstNLDS.loadshedding,1,K);
-    productionsheddingTrials[LayerNodes[LayerChoice], 1, :, iter] = repmat(FirstNLDS.productionshedding,1,K);
+    pflowTrials[LayerLines[LayerChoice], 1, :, iter] = repeat(FirstNLDS.pflow,1,K);
+    storageTrials[LayerNodes[LayerChoice], 1, :, iter] = repeat(FirstNLDS.storage,1,K);
+    batterychargeTrials[LayerNodes[LayerChoice], 1, :, iter] = repeat(FirstNLDS.batterycharge,1,K);
+    batterydischargeTrials[LayerNodes[LayerChoice], 1, :, iter] = repeat(FirstNLDS.batterydischarge,1,K);
+    loadsheddingTrials[LayerNodes[LayerChoice], 1, :, iter] = repeat(FirstNLDS.loadshedding,1,K);
+    productionsheddingTrials[LayerNodes[LayerChoice], 1, :, iter] = repeat(FirstNLDS.productionshedding,1,K);
     if LayerChoice == 1
-        pgenerationTrials[1:NGenerators, 1, :, iter] = repmat(FirstNLDS.pgeneration,1,K)
+        pgenerationTrials[1:NGenerators, 1, :, iter] = repeat(FirstNLDS.pgeneration,1,K)
     end
 
     # Here each processor solves a path
@@ -327,7 +331,7 @@ end
     # for loop for NLDS(t,k) -> solve and store the solution to `NesLDS_tk`
     for OutcomeChoice = 1:NLattice[TimeChoice]
         # The NLDS is solved
-        #println("   ****Backward Pass: solving layer ",LayerChoice,", Stage ", TimeChoice, ", Outcome ",OutcomeChoice, ", MC Sample ",SampleChoice, ", Iteration ",iter )
+        println("   ****Backward Pass: solving layer ",LayerChoice,", Stage ", TimeChoice, ", Outcome ",OutcomeChoice, ", MC Sample ",SampleChoice, ", Iteration ",iter )
         NesLDS = NLDS(TimeChoice, SampleChoice, iter, LayerChoice, OutcomeChoice, storageTrials, ECut, eCut, NumCuts)
         #println("\n")
         push!(NesLDS_tk, NesLDS);
@@ -337,7 +341,7 @@ end
     # for loop for compute the cuts of NLDS(t-1,j) for all j (j = OutcomeChoice_1)
     for OutcomeChoice_1 = 1:NLattice[TimeChoice-1]
         # compute Cut Coefficient: E
-        EE = Array{Float64}(length(LayerNodes[LayerChoice]));
+        EE = Array{Float64}(undef,length(LayerNodes[LayerChoice]));
         for i = 1:length(LayerNodes[LayerChoice])
             n = LayerNodes[LayerChoice][i];
             EE[i] = sum(
@@ -356,15 +360,15 @@ end
                 +sum(NesLDS_tk[k].BatteryChargeMax[n] .* BatteryChargeRate[n] for n in LayerNodes[LayerChoice])
                 +sum(NesLDS_tk[k].BatteryDischargeMax[n] .* BatteryChargeRate[n] for n in LayerNodes[LayerChoice]))
                 for k = 1:NLattice[TimeChoice] )
-        if !isempty(HeadNodes[LayerChoice]) # CAUTION needs to be generalized for multi-layer (p_in_data)
+        if !isempty(HeadNodes[LayerChoice])
             ee += sum(TransProb[LayerChoice,TimeChoice-1][OutcomeChoice_1,k] *
-                sum(NesLDS_tk[k].Pin_fix[n] .* p_in_data[LayerChoice,TimeChoice][k] #=p_in_data[TimeChoice,k]=# for n in HeadNodes[LayerChoice])
+                sum(NesLDS_tk[k].Pin_fix[n] .* p_in_data[LayerChoice,TimeChoice][k] for n in HeadNodes[LayerChoice])
                 for k = 1:NLattice[TimeChoice] )
         end
-        if !isempty(LeafNodes[LayerChoice]) # CAUTION needs to be generalized for multi-layer (p_out_data)
+        if !isempty(LeafNodes[LayerChoice])
             for n in LeafNodes[LayerChoice], m in LeafChildren[LayerChoice,n]
                 ee += sum(TransProb[LayerChoice,TimeChoice-1][OutcomeChoice_1,k] * (
-                    sum(NesLDS_tk[k].Pout_fix[[n,m]] .* p_out_data[n,m][TimeChoice][k] #=p_out_data[TimeChoice,k]=#)
+                    sum(NesLDS_tk[k].Pout_fix[[n,m]] .* p_out_data[n,m][TimeChoice][k])
                 )
                 for k = 1:NLattice[TimeChoice])
             end

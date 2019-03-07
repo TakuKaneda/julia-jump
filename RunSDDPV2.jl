@@ -2,27 +2,27 @@
 problem_size = "multi" # "two" or "multi"
 
 # Number of Samples
-const K = 3;
+const K = 2;
 
 # Number of Iterations
 const Iterations = 5;
 
 include("SDDPV2.jl")
 
-for LayerChoice = 1:6
+for LayerChoice = 1:NLayers
     for iter = 1:Iterations
-        tic()
+        start = time();
         ForwardPass(K, LayerChoice, iter)
-        SDDPTime[LayerChoice, 1, iter] = toq();
+        SDDPTime[LayerChoice, 1, iter] = time() - start;
         # BackwardPass(K, LayerChoice, i)
-        tic()
+        start = time();
         BackwardPass(K, LayerChoice, iter)
-        SDDPTime[LayerChoice, 2, iter] = toq();
+        SDDPTime[LayerChoice, 2, iter] = time() - start;
     end
 end
 
 for iter = 1:Iterations
-    for LayerChoice = 1:6
+    for LayerChoice = 1:NLayers
         for SampleChoice = 1:K
             if LayerChoice == 1
                 SampleCost[LayerChoice, SampleChoice, iter] = sum(pgenerationTrials[g, TimeChoice, SampleChoice, iter]*MargCost[g] for g =1:NGenerators, TimeChoice = 1:H) + VOLL*sum(loadsheddingTrials[n, TimeChoice, SampleChoice, iter] for n in LayerNodes[LayerChoice], TimeChoice = 1:H);
@@ -39,11 +39,11 @@ end
 #plotting the convergence
 using Plots
 pyplot()
-plts = Array{Any}(6)
+plts = Array{Any}(undef,6)
 for l = 1:6
     plts[l] = plot(LowerBound[l,:], title = ("Layer "*string(l)),xaxis = "Iteration",yaxis="Cost (\$)",linecolor = :blue, label="Lower Bound")
     plts[l] = plot!(MeanCost[l,:], linecolor = :red, label="Mean Cost")
     plts[l] = plot!(MeanCost[l,:] + 1.96.*MeanCostStd[l,:], linecolor = :red, linestyle = :dot, label="95% CI")
-    plts[l] = plot!(MeanCost[l,:] - 1.96.*MeanCostStd[l,:], linecolor = :red, linestyle = :dot)
+    plts[l] = plot!(MeanCost[l,:] - 1.96.*MeanCostStd[l,:], linecolor = :red, linestyle = :dot, label ="")
 end
 plot(plts[1],plts[2],plts[3],plts[4],plts[5],plts[6],layout=(2,3))

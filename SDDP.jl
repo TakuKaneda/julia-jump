@@ -1,4 +1,4 @@
-using JuMP, Gurobi, Clp, GLPK
+using JuMP, Gurobi, Clp, GLPK, Ipopt, Statistics
 
 # Here we load the SDDP data
 include("LoadDataSDDP.jl")
@@ -94,9 +94,10 @@ function NLDS(TimeChoice, SampleChoice, iter, LayerChoice, OutcomeChoice)
     " OutcomeChoice -- Refers to the outcome k of time stage t"
 
     # Definition of the model
-    # model = Model(with_optimizer(Gurobi.Optimizer, LogToConsole=0));
-    # model = Model(with_optimizer(Clp.Optimizer, LogLevel=0));
-    model = Model(with_optimizer(GLPK.Optimizer, msg_lev=0));
+    # model = Model(with_optimizer(Gurobi.Optimizer, LogToConsole=0)); # ERROR: LoadError: AssertionError: dual <= 0.0 I DONT KNOW WHY
+    # model = Model(with_optimizer(Clp.Optimizer, LogLevel=0)); # ERROR: LoadError: AssertionError: dual <= 0.0
+    # model = Model(with_optimizer(GLPK.Optimizer, msg_lev=0)); # ERROR: LoadError: AssertionError: dual <= 0.0
+    model = Model(with_optimizer(Ipopt.Optimizer, print_level=0)); # Ipopt works!
 
     # Variables
     @variable(model, pflow[LayerLines[LayerChoice]]  );

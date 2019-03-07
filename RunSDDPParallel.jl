@@ -1,11 +1,15 @@
+using Distributed
 # Here we add the processors
-addprocs(3)
+if  nworkers() == 1
+    addprocs(3)
+end
 # Select the type of problem
+@everywhere using SharedArrays
 @everywhere problem_size = "multi" # "two" or "multi"
 include("SDDPParallel.jl")
 
 # Number of Samples
-@everywhere const K = 5;
+@everywhere const K = 2;
 
 # Number of Iterations
 @everywhere const Iterations = 3;
@@ -38,13 +42,13 @@ SDDPTime = zeros(NLayers, 2, Iterations);  # store Forward/BackwardPass time
 
 @time for LayerChoice = 1:NLayers
     for iter = 1:Iterations
-        tic()
+        start = time();
         ForwardPass(K, LayerChoice, iter)
-        SDDPTime[LayerChoice, 1, iter] = toc()
+        SDDPTime[LayerChoice, 1, iter] = time()-start;
         # BackwardPass(K, LayerChoice, i)
-        tic()
+        start = time();
         BackwardPass(K, LayerChoice, iter)
-        SDDPTime[LayerChoice, 2, iter] = toc()
+        SDDPTime[LayerChoice, 2, iter] = time()-start;
     end
 end
 
@@ -66,11 +70,11 @@ end
 #plotting the convergence
 using Plots
 pyplot()
-plts = Array{Any}(NLayers)
+plts = Array{Any}(undef,NLayers)
 for l = 1:NLayers
     plts[l] = plot(LowerBound[l,:], title = ("Layer "*string(l)),xaxis = "Iteration",yaxis="Cost (\$)",linecolor = :blue, label="Lower Bound")
     plts[l] = plot!(MeanCost[l,:], linecolor = :red, label="Mean Cost")
     plts[l] = plot!(MeanCost[l,:] + 1.96.*MeanCostStd[l,:], linecolor = :red, linestyle = :dot, label="95% CI")
-    plts[l] = plot!(MeanCost[l,:] - 1.96.*MeanCostStd[l,:], linecolor = :red, linestyle = :dot)
+    plts[l] = plot!(MeanCost[l,:] - 1.96.*MeanCostStd[l,:], linecolor = :red, linestyle = :dot, label="")
 end
 plot(plts[1],plts[2],layout=(1,NLayers))

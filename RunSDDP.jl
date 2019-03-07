@@ -4,10 +4,10 @@ problem_size = "two" # "two" or "multi"
 include("SDDP.jl")
 
 # Number of Samples
-const K = 1;
+const K = 2;
 
 # Number of Iterations
-const Iterations = 1;
+const Iterations = 5;
 
 # Definition of the Arrays to store the results
 # May not be the best way to store things
@@ -53,7 +53,7 @@ SDDPTime = zeros(NLayers, 2, Iterations);  # store Forward/BackwardPass time
         SDDPTime[LayerChoice, 2, iter] = time()-start
     end
 end
-
+##
 for iter = 1:Iterations
     for LayerChoice = 1:NLayers
         for SampleChoice = 1:K
@@ -77,6 +77,6 @@ for l = 1:NLayers
     plts[l] = plot(LowerBound[l,:], title = ("Layer "*string(l)),xaxis = "Iteration",yaxis="Cost (\$)",linecolor = :blue, label="Lower Bound")
     plts[l] = plot!(MeanCost[l,:], linecolor = :red, label="Mean Cost")
     plts[l] = plot!(MeanCost[l,:] + 1.96.*MeanCostStd[l,:], linecolor = :red, linestyle = :dot, label="95% CI")
-    plts[l] = plot!(MeanCost[l,:] - 1.96.*MeanCostStd[l,:], linecolor = :red, linestyle = :dot)
+    plts[l] = plot!(MeanCost[l,:] - 1.96.*MeanCostStd[l,:], linecolor = :red, linestyle = :dot, label ="")
 end
 plot(plts[1],plts[2],layout=(1,NLayers))
